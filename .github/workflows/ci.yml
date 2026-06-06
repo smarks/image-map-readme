@@ -30,3 +30,14 @@ jobs:
           test -s spencer-brain-poster.html
           grep -q 'id="mobile"' spencer-brain-poster.html
           grep -q 'id="poster"' spencer-brain-poster.html
+
+  notify:
+    needs: [build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Email on failure or green-after-red
+        uses: smarks/base_repo_template/.github/actions/notify@main
+        with:
+          job-status: ${{ needs.build.result }}
+          mail-password: ${{ secrets.MAIL_PASSWORD }}
