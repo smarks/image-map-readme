@@ -21,9 +21,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = Path(__file__).parent
-SAMPLE_IMAGE = HERE / "sample-brain.png"
-EXAMPLE_CONTENT = HERE / "poster-content.example.json"
+PROJECT = Path.cwd()
+SAMPLE_IMAGE = PROJECT / "sample-brain.png"
+EXAMPLE_CONTENT = PROJECT / "poster-content.example.json"
 
 # Must match build_poster.py's brain placement (poster space).
 BRAIN_IMAGE_X = 1300

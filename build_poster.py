@@ -27,15 +27,19 @@ from pathlib import Path
 
 from PIL import Image, ImageFont
 
-HERE = Path(__file__).parent
-CONTENT_PATH = HERE / "poster-content.json"
-EXAMPLE_CONTENT_PATH = HERE / "poster-content.example.json"
-WEB_BRAIN = HERE / "brain-web.png"
-SVG_OUT = HERE / "spencer-brain-poster.svg"
-HTML_OUT = HERE / "spencer-brain-poster.html"
-PNG_OUT = HERE / "spencer-brain-poster.png"
-PDF_OUT = HERE / "spencer-brain-poster.pdf"
-PRINT_DIR = HERE / "print"
+# Data (content, brain image, outputs) is resolved against the CURRENT directory,
+# not the engine's own folder — so this engine can live in one repo and build a
+# content folder in another (run it from the content dir). The engine ships no
+# data of its own beyond the example demo that sits in its repo.
+PROJECT = Path.cwd()
+CONTENT_PATH = PROJECT / "poster-content.json"
+EXAMPLE_CONTENT_PATH = PROJECT / "poster-content.example.json"
+WEB_BRAIN = PROJECT / "brain-web.png"
+SVG_OUT = PROJECT / "spencer-brain-poster.svg"
+HTML_OUT = PROJECT / "spencer-brain-poster.html"
+PNG_OUT = PROJECT / "spencer-brain-poster.png"
+PDF_OUT = PROJECT / "spencer-brain-poster.pdf"
+PRINT_DIR = PROJECT / "print"
 
 # ── Canvas geometry (poster space) ──────────────────────────────────────────
 CANVAS_WIDTH = 4600
@@ -540,10 +544,78 @@ def embed_brain(svg_text: str) -> str:
     return re.sub(r"^<\?xml[^>]*\?>\s*", "", inline)
 
 
-def build_html(svg_text: str) -> str:
-    """Wrap the SVG (with brain base64-embedded) in a pan/zoom page."""
+def inline_html(text: str) -> str:
+    """Render text with [label](url) markdown links as escaped HTML."""
+    parts: list[str] = []
+    position = 0
+    for match in LINK_RE.finditer(text):
+        parts.append(escape(text[position : match.start()]))
+        parts.append(
+            f'<a href="{escape(match.group(2))}" target="_blank">{escape(match.group(1))}</a>'
+        )
+        position = match.end()
+    parts.append(escape(text[position:]))
+    return "".join(parts)
+
+
+def _mobile_card(card: dict) -> str:
+    """Render one content card as a mobile section."""
+    glyph = f'<svg width="36" height="36" viewBox="0 0 60 60">{icon(card["icon"], 30, 30, card["color"])}</svg>'
+    bullets = "".join(f"<li>{inline_html(bullet)}</li>" for bullet in card["bullets"])
+    note = f'<p class="note">{inline_html(card["note"])}</p>' if card.get("note") else ""
+    return (
+        f'<section class="card" style="--accent:{escape(card["color"])}">'
+        f'<h2>{glyph}<span>{escape(card["title"])}</span></h2>'
+        f"<ul>{bullets}</ul>{note}</section>"
+    )
+
+
+def render_mobile(content: dict) -> str:
+    """Render the no-image-map, stacked-card layout shown on phones."""
+    cards = "".join(
+        _mobile_card(card)
+        for card in content["left_column"] + content["right_column"] + [content["about"]]
+    )
+    quotes = content["quotes"]
+    quote_items = "".join(
+        f'<blockquote>“{inline_html(item["text"])}”'
+        + (f'<span class="by">— {escape(item["by"])}</span>' if item.get("by") else "")
+        + "</blockquote>"
+        for item in quotes["items"]
+    )
+    quotes_html = f'<section class="card quotes"><h2><span>{escape(quotes["title"])}</span></h2>{quote_items}</section>'
+    links = content["links"]
+    buttons = "".join(
+        f'<a class="btn" href="{escape(button["href"])}" target="_blank">{escape(button["label"])}</a>'
+        for button in links["buttons"]
+    )
+    links_html = (
+        f'<section class="card links" style="--accent:{escape(links["color"])}">'
+        f'<h2><span>{escape(links["title"])}</span></h2>{buttons}</section>'
+    )
+    github = content.get("github_link")
+    footer = ""
+    if github:
+        octocat = f'<svg width="22" height="22" viewBox="0 0 16 16" fill="#fff"><path d="{OCTOCAT_PATH}"/></svg>'
+        footer = (
+            f'<footer><a class="ghbtn" href="{escape(github.get("href", ""))}" target="_blank">'
+            f'{octocat}{escape(github.get("label", "GitHub"))}</a></footer>'
+        )
+    return (
+        f'<div id="mobile"><h1>{escape(content["title"])}</h1>'
+        f'<p class="sub">{escape(content["subtitle"])}</p>'
+        f"{cards}{quotes_html}{links_html}{footer}</div>"
+    )
+
+
+def build_html(svg_text: str, content: dict) -> str:
+    """Wrap the SVG (with brain base64-embedded) in a pan/zoom page.
+
+    The same page also carries a stacked-card mobile layout (no image map); CSS
+    shows the poster on wide screens and the cards on narrow ones.
+    """
     inline = embed_brain(svg_text).replace("<svg ", '<svg id="poster" ', 1)
-    return _HTML_SHELL.replace("__SVG__", inline)
+    return _HTML_SHELL.replace("__SVG__", inline).replace("__MOBILE__", render_mobile(content))
 
 
 _HTML_SHELL = """<!doctype html>
@@ -564,6 +636,27 @@ _HTML_SHELL = """<!doctype html>
   #hint{position:fixed;right:16px;bottom:16px;z-index:10;background:rgba(31,36,51,.88);color:#fff;font:500 14px/1.4 'Helvetica Neue',Arial;padding:10px 14px;border-radius:10px;max-width:260px}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
   #tip.show{opacity:1}
+  #mobile{display:none;max-width:680px;margin:0 auto;padding:26px 18px 56px;color:#2A2F3D;text-align:left}
+  #mobile h1{font-size:2rem;font-weight:800;text-align:center;color:#1F2433;margin:6px 0 4px}
+  #mobile .sub{text-align:center;color:#4A5163;font-size:1rem;margin:0 0 24px;line-height:1.5}
+  #mobile .card{background:#fff;border-radius:16px;box-shadow:0 4px 14px rgba(31,36,51,.10);padding:18px 18px 14px;margin:0 0 16px;border-left:8px solid var(--accent,#888)}
+  #mobile .card h2{display:flex;align-items:center;gap:10px;font-size:1.2rem;font-weight:800;color:#1F2433;margin:0 0 10px}
+  #mobile .card ul{margin:0;padding-left:20px}
+  #mobile .card li{margin:0 0 8px;line-height:1.45;font-size:1rem}
+  #mobile .card .note{font-style:italic;color:#6A4FD0;margin:10px 0 0;font-size:.95rem}
+  #mobile a{color:#2D6CDF}
+  #mobile .quotes{background:#2E2A5A;border-left-color:#6A4FD0}
+  #mobile .quotes h2,#mobile .quotes blockquote{color:#EDEEF4}
+  #mobile blockquote{margin:0 0 14px;font-style:italic;line-height:1.5}
+  #mobile blockquote .by{font-style:normal;font-weight:700;color:#FFB3C7;display:block;margin-top:3px;font-size:.9rem}
+  #mobile .links a.btn{display:block;background:#EEF1FB;border:1px solid #2D6CDF;color:#2D6CDF;border-radius:12px;padding:14px 16px;margin:0 0 10px;text-decoration:none;font-weight:700;font-size:1rem;overflow-wrap:anywhere}
+  #mobile .ghbtn{display:inline-flex;align-items:center;gap:9px;background:#2A2F3D;color:#fff;border-radius:14px;padding:13px 20px;text-decoration:none;font-weight:700}
+  #mobile footer{text-align:center;margin-top:22px}
+  @media (max-width:820px){
+    html,body{overflow:auto;height:auto}
+    #stage,#hud,#hint,#tip{display:none}
+    #mobile{display:block}
+  }
 </style>
 </head>
 <body>
@@ -577,6 +670,7 @@ __SVG__
 </div>
 <div id="hint">Drag to pan &middot; scroll / pinch to zoom &middot; hover the brain icons for notes &middot; click links to open them.</div>
 <div id="tip"></div>
+__MOBILE__
 <script>
 (function(){
   var stage=document.getElementById('stage');
@@ -653,7 +747,7 @@ __SVG__
 
 def prepare_brain(source_name: str) -> int:
     """Convert the brain image to a web PNG; return its scaled poster height."""
-    source = HERE / source_name
+    source = PROJECT / source_name
     if not source.exists():
         raise FileNotFoundError(f"brain_image not found: {source}")
     with Image.open(source) as image:
@@ -690,7 +784,7 @@ def render_png(svg_text: str) -> None:
         print("• Could not read viewBox — skipping PNG preview.")
         return
     width, height = dimensions
-    preview = HERE / "_preview.html"
+    preview = PROJECT / "_preview.html"
     preview.write_text(
         "<!doctype html><meta charset=utf-8>"
         "<style>html,body{margin:0;background:#EEEEF3}</style>" + embed_brain(svg_text)
@@ -725,7 +819,7 @@ def render_pdf(svg_text: str) -> None:
         print("• Could not read viewBox — skipping PDF.")
         return
     width, height = dimensions
-    page = HERE / "_print.html"
+    page = PROJECT / "_print.html"
     page.write_text(
         "<!doctype html><meta charset=utf-8><style>"
         f"@page{{size:{width}px {height}px;margin:0}}"
@@ -753,7 +847,7 @@ def archive_pdf() -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     destination = PRINT_DIR / f"spencer-brain-poster-{stamp}.pdf"
     shutil.copy2(PDF_OUT, destination)
-    print(f"• Archived {destination.relative_to(HERE)}")
+    print(f"• Archived {destination.relative_to(PROJECT)}")
 
 
 def build_once(make_pdf: bool = True, archive: bool = True) -> dict:
@@ -763,7 +857,7 @@ def build_once(make_pdf: bool = True, archive: bool = True) -> dict:
     svg_text = build_svg(content, brain_height)
     SVG_OUT.write_text(svg_text)
     print(f"• Wrote {SVG_OUT.name} and {WEB_BRAIN.name}")
-    HTML_OUT.write_text(build_html(svg_text))
+    HTML_OUT.write_text(build_html(svg_text, content))
     print(f"• Wrote {HTML_OUT.name}")
     render_png(svg_text)
     if make_pdf:
@@ -775,7 +869,7 @@ def build_once(make_pdf: bool = True, archive: bool = True) -> dict:
 
 def watched_paths(content: dict) -> list[Path]:
     """Files whose changes should trigger a rebuild."""
-    return [resolve_content_path(), Path(__file__), HERE / content["brain_image"]]
+    return [resolve_content_path(), Path(__file__), PROJECT / content["brain_image"]]
 
 
 def watch(make_pdf: bool = True) -> None:
