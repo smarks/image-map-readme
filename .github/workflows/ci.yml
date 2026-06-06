@@ -1,0 +1,32 @@
+name: CI
+
+# The engine is directory-agnostic (it builds whatever content dir it runs in),
+# so CI just builds the bundled example demo and checks it comes out intact. This
+# is what catches a broken engine before the private repo (brain-poster) pulls it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install Pillow
+        run: pip install Pillow
+      - name: Install an Arial-compatible font (so text wraps like a browser)
+        run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+      - name: Build the demo from the example content
+        run: python3 build_poster.py --no-pdf --no-archive
+      - name: Verify marker placement
+        run: python3 verify_markers.py
+      - name: Sanity-check the output (poster + mobile layout present)
+        run: |
+          test -s spencer-brain-poster.html
+          grep -q 'id="mobile"' spencer-brain-poster.html
+          grep -q 'id="poster"' spencer-brain-poster.html

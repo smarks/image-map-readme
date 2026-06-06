@@ -35,10 +35,10 @@ BRAIN_IMAGE_X = 1300
 BRAIN_IMAGE_Y = 455
 BRAIN_IMAGE_WIDTH = 2000
 
-HERE = Path(__file__).parent
-CONTENT_PATH = HERE / "poster-content.json"
-EXAMPLE_CONTENT_PATH = HERE / "poster-content.example.json"
-VERIFY_DIR = HERE / "verify"
+PROJECT = Path.cwd()
+CONTENT_PATH = PROJECT / "poster-content.json"
+EXAMPLE_CONTENT_PATH = PROJECT / "poster-content.example.json"
+VERIFY_DIR = PROJECT / "verify"
 
 
 def resolve_content_path() -> Path:
@@ -64,7 +64,7 @@ CENTROID_MARGIN = 0.15  # blue centroid may fall this far outside the box (frac 
 def load_brain() -> Image.Image:
     """Open the configured brain image as RGB."""
     content = json.loads(resolve_content_path().read_text())
-    source = HERE / content["brain_image"]
+    source = PROJECT / content["brain_image"]
     if not source.exists():
         raise FileNotFoundError(f"brain_image not found: {source}")
     return Image.open(source).convert("RGB")
@@ -287,7 +287,7 @@ def main(name_filter: str | None) -> int:
         crop_for_review(image, box, crop_path)
         print(f"  [{status:4}] {kind} {label}")
         print(f"          {detail}  {' '.join(hard + warn)}")
-        print(f"          review: {crop_path.relative_to(HERE)}")
+        print(f"          review: {crop_path.relative_to(PROJECT)}")
     print(
         f"\n{failures} hard failure(s), {warnings} warning(s). "
         f"Always open the verify/ crops — green is not proof of placement."
