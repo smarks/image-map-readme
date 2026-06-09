@@ -646,12 +646,12 @@ _HTML_SHELL = """<!doctype html>
 <title>Spencer's README</title>
 <style>
   html,body{margin:0;height:100%;background:#EEEEF3;font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden}
-  #stage{position:fixed;inset:0;cursor:grab;touch-action:none}
+  #stage{position:fixed;inset:0;cursor:grab;touch-action:none;overflow:hidden}
   #stage.grabbing{cursor:grabbing}
   #poster{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;user-select:none}
   #poster a{cursor:pointer}
-  #hud{position:fixed;left:16px;bottom:16px;display:flex;gap:8px;z-index:10}
-  #hud button{font:600 16px/1 'Helvetica Neue',Arial;background:#1F2433;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+  #hud{position:fixed;left:18px;bottom:22px;display:flex;gap:8px;z-index:30}
+  #hud button{font:600 17px/1 'Helvetica Neue',Arial;background:#1F2433;color:#fff;border:0;border-radius:10px;padding:12px 18px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#2D6CDF}
   #hint{position:fixed;right:16px;bottom:16px;z-index:10;background:rgba(31,36,51,.88);color:#fff;font:500 14px/1.4 'Helvetica Neue',Arial;padding:10px 14px;border-radius:10px;max-width:260px}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
@@ -689,11 +689,11 @@ _HTML_SHELL = """<!doctype html>
 __SVG__
 </div>
 <div id="hud">
-  <button id="zin">＋ Zoom in</button>
-  <button id="zout">－ Zoom out</button>
-  <button id="fit">⤢ Fit</button>
+  <button type="button" id="zin">＋ Zoom in</button>
+  <button type="button" id="zout">－ Zoom out</button>
+  <button type="button" id="fit">⤢ Fit</button>
 </div>
-<div id="hint">Drag to pan &middot; pinch or scroll to zoom &middot; hover or tap the brain icons for notes &middot; tap links to open them.</div>
+<div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; hover or tap the brain icons for notes &middot; click links to open them.</div>
 <div id="tip"></div>
 __MOBILE__
 <script>
@@ -782,8 +782,27 @@ __MOBILE__
   stage.addEventListener('wheel',function(e){
     e.preventDefault();
     var r=stage.getBoundingClientRect();
-    zoomAt(e.clientX-r.left,e.clientY-r.top, e.deltaY<0?1.12:1/1.12);
+    if(e.ctrlKey){            // trackpad pinch (and ctrl+wheel on a mouse) → zoom at cursor
+      zoomAt(e.clientX-r.left,e.clientY-r.top, e.deltaY<0?1.12:1/1.12);
+    }else{                    // two-finger scroll / wheel → pan, like every other canvas app
+      tx-=e.deltaX; ty-=e.deltaY; apply();
+    }
   },{passive:false});
+  // ── Keyboard controls (zoom, fit, nudge) ────────────────────────────────
+  window.addEventListener('keydown',function(e){
+    if(e.metaKey||e.ctrlKey||e.altKey)return;          // leave browser shortcuts alone
+    if(getComputedStyle(stage).display==='none')return; // text fallback is showing
+    var step=90, k=e.key;
+    if(k==='+'||k==='='){ zoomAt(stage.clientWidth/2,stage.clientHeight/2,1.2); }
+    else if(k==='-'||k==='_'){ zoomAt(stage.clientWidth/2,stage.clientHeight/2,1/1.2); }
+    else if(k==='0'||k==='f'||k==='F'){ fit(); }
+    else if(k==='ArrowLeft'){ tx+=step; apply(); }
+    else if(k==='ArrowRight'){ tx-=step; apply(); }
+    else if(k==='ArrowUp'){ ty+=step; apply(); }
+    else if(k==='ArrowDown'){ ty-=step; apply(); }
+    else return;
+    e.preventDefault();
+  });
   // ── Icon tooltips (pure hover) ──────────────────────────────────────────
   var tip=document.getElementById('tip');
   function moveTip(x,y){
