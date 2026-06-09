@@ -672,7 +672,12 @@ _HTML_SHELL = """<!doctype html>
   #mobile .links a.btn{display:block;background:#EEF1FB;border:1px solid #2D6CDF;color:#2D6CDF;border-radius:12px;padding:14px 16px;margin:0 0 10px;text-decoration:none;font-weight:700;font-size:1rem;overflow-wrap:anywhere}
   #mobile .ghbtn{display:inline-flex;align-items:center;gap:9px;background:#2A2F3D;color:#fff;border-radius:14px;padding:13px 20px;text-decoration:none;font-weight:700}
   #mobile footer{text-align:center;margin-top:22px}
-  @media (max-width:820px){
+  /* Text fallback is for phones only: either viewport dimension <=540px means a
+     phone (in some orientation). Tablets (iPad mini portrait is 768 wide) have
+     both dimensions well above this, so they get the interactive poster. The
+     height clause is gated to touch (pointer:coarse) so short *desktop* windows
+     keep the interactive view exactly as before. */
+  @media (max-width:540px), (max-height:540px) and (pointer:coarse){
     html,body{overflow:auto;height:auto}
     #stage,#hud,#hint,#tip{display:none}
     #mobile{display:block}
@@ -688,7 +693,7 @@ __SVG__
   <button id="zout">－ Zoom out</button>
   <button id="fit">⤢ Fit</button>
 </div>
-<div id="hint">Drag to pan &middot; scroll / pinch to zoom &middot; hover the brain icons for notes &middot; click links to open them.</div>
+<div id="hint">Drag to pan &middot; pinch or scroll to zoom &middot; hover or tap the brain icons for notes &middot; tap links to open them.</div>
 <div id="tip"></div>
 __MOBILE__
 <script>
@@ -710,22 +715,70 @@ __MOBILE__
     tx=cx-(cx-tx)*(ns/scale); ty=cy-(cy-ty)*(ns/scale); scale=ns; apply();
   }
   var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null;
+  // Active pointers, keyed by id. A mouse is always a single pointer, so it never
+  // enters the two-finger pinch path below — the desktop drag/click behaviour is
+  // unchanged. A second touch starts a pinch; a single touch pans exactly like a
+  // mouse drag does.
+  var pointers={}, pinch=null;
+  function ptList(){ return Object.keys(pointers).map(function(k){return pointers[k];}); }
+  function ptDist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
   stage.addEventListener('pointerdown',function(e){
+    pointers[e.pointerId]={x:e.clientX,y:e.clientY};
+    stage.setPointerCapture(e.pointerId);
+    var pts=ptList();
+    if(pts.length>=2){                 // second finger down → begin pinch-zoom
+      down=false; moved=true; target=null; hideTip();   // cancel any pan/tap in progress
+      pinch={d:ptDist(pts[0],pts[1]), r:stage.getBoundingClientRect()};
+      stage.classList.remove('grabbing');
+      return;
+    }
     down=true;moved=false;sx=e.clientX;sy=e.clientY;otx=tx;oty=ty;
     target=e.target.closest('a');
     hideTip();
-    stage.classList.add('grabbing'); stage.setPointerCapture(e.pointerId);
+    stage.classList.add('grabbing');
   });
   stage.addEventListener('pointermove',function(e){
+    if(pointers[e.pointerId]){ pointers[e.pointerId].x=e.clientX; pointers[e.pointerId].y=e.clientY; }
+    if(pinch){                         // two fingers → zoom about their midpoint
+      var pts=ptList();
+      if(pts.length>=2){
+        var nd=ptDist(pts[0],pts[1]);
+        if(nd>0 && pinch.d>0){
+          var mx=(pts[0].x+pts[1].x)/2, my=(pts[0].y+pts[1].y)/2;
+          zoomAt(mx-pinch.r.left, my-pinch.r.top, nd/pinch.d);
+        }
+        pinch.d=nd;
+      }
+      return;
+    }
     if(!down)return; var dx=e.clientX-sx, dy=e.clientY-sy;
     if(Math.abs(dx)+Math.abs(dy)>4)moved=true;
     tx=otx+dx; ty=oty+dy; apply();
   });
-  stage.addEventListener('pointerup',function(e){
+  function endPointer(e){
+    delete pointers[e.pointerId];
+    if(pinch){                         // lifting a finger ends (or hands off) the pinch
+      if(ptList().length<2){
+        pinch=null;
+        var rest=ptList();
+        if(rest.length===1){           // one finger remains → resume panning, no jump, no tap
+          down=true; moved=true; sx=rest[0].x; sy=rest[0].y; otx=tx; oty=ty;
+        }
+      }
+      stage.classList.remove('grabbing');
+      return;
+    }
     down=false; stage.classList.remove('grabbing');
-    if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href)window.open(href,'_blank'); }
+    if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href){ window.open(href,'_blank'); } target=null; return; }
     target=null;
-  });
+    if(e.pointerType!=='mouse' && !moved){   // touch tap on empty art toggles marker tooltips
+      var el=e.target.closest('[data-tip]');
+      if(el){ tip.textContent=el.getAttribute('data-tip'); tip.classList.add('show'); moveTip(e.clientX,e.clientY); }
+      else hideTip();
+    }
+  }
+  stage.addEventListener('pointerup',endPointer);
+  stage.addEventListener('pointercancel',endPointer);
   stage.addEventListener('wheel',function(e){
     e.preventDefault();
     var r=stage.getBoundingClientRect();
@@ -742,14 +795,16 @@ __MOBILE__
   }
   function hideTip(){ tip.classList.remove('show'); }
   stage.addEventListener('pointerover',function(e){
-    if(down)return;
+    if(down || e.pointerType!=='mouse')return;   // touch tooltips are handled on tap, above
     var el=e.target.closest('[data-tip]');
     if(el){ tip.textContent=el.getAttribute('data-tip'); tip.classList.add('show'); moveTip(e.clientX,e.clientY); }
   });
   stage.addEventListener('pointerout',function(e){
+    if(e.pointerType!=='mouse')return;
     if(e.target.closest('[data-tip]')) hideTip();
   });
   stage.addEventListener('pointermove',function(e){
+    if(e.pointerType!=='mouse')return;           // pinned touch tip stays put until the next tap
     if(down){ hideTip(); return; }
     if(tip.classList.contains('show')) moveTip(e.clientX,e.clientY);
   });
@@ -757,6 +812,7 @@ __MOBILE__
   document.getElementById('zout').onclick=function(){zoomAt(stage.clientWidth/2,stage.clientHeight/2,1/1.25);};
   document.getElementById('fit').onclick=fit;
   window.addEventListener('resize',fit);
+  window.addEventListener('orientationchange',fit);   // re-center when an iPad rotates
   fit();
 })();
 </script>
