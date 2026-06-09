@@ -453,7 +453,8 @@ def build_svg(content: dict, brain_height: int) -> str:
 
     # bottom row: about, quotes, links. The brain floor reserves room below the
     # brain for the caption and the GitHub-link button.
-    bottom_y = max(left_bottom, right_bottom, brain_y_bottom + 250) + 10
+    brain_reserve = 400 if content.get("brain_link") else 250
+    bottom_y = max(left_bottom, right_bottom, brain_y_bottom + brain_reserve) + 10
     about_svg, about_h = layout_card(content["about"], 70, bottom_y, 1380)
     quotes_svg, quotes_h = layout_quotes(content["quotes"], 1490, bottom_y, 1480)
     links_svg, links_h = layout_links(content["links"], 3010, bottom_y, 1520)
@@ -484,6 +485,18 @@ def build_svg(content: dict, brain_height: int) -> str:
             f'<g transform="translate({icon_x},{icon_y}) scale({scale:.5f})" fill="#FFFFFF"><path d="{OCTOCAT_PATH}"/></g>'
             f'<text x="{icon_x + icon_size + gap}" y="{button_y + button_h // 2 + 11}" '
             f'font-weight="700" font-size="{font_size}" fill="#FFFFFF">{escape(label)}</text></a>'
+        )
+
+    # optional headline link, centered under the brain caption (clickable on the
+    # interactive HTML). Activates only when content provides "brain_link".
+    brain_link_svg = ""
+    brain_link = content.get("brain_link")
+    if brain_link:
+        brain_link_svg = (
+            f'<a href="{escape(brain_link["href"])}" target="_blank">'
+            f'<text x="2300" y="{brain_y_bottom + 300}" text-anchor="middle" '
+            f'class="lnk" font-weight="700" font-size="40">'
+            f'{escape(brain_link["text"])}</text></a>'
         )
 
     head = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -521,6 +534,7 @@ def build_svg(content: dict, brain_height: int) -> str:
   <rect x="{BRAIN_CARD_X}" y="430" width="{BRAIN_CARD_WIDTH}" height="{brain_card_height}" rx="34" fill="#FFFFFF" filter="url(#shadow)"/>
   <image x="{BRAIN_IMAGE_X}" y="{BRAIN_IMAGE_Y}" width="{BRAIN_IMAGE_WIDTH}" height="{brain_height}" href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>
   <text x="2300" y="{brain_y_bottom+92}" text-anchor="middle" class="b" fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>
+  {brain_link_svg}
   {github_svg}
   {hotspots}
   <g fill="#FF965A" stroke="#FFFFFF" stroke-width="4">{''.join(nodes)}</g>
@@ -601,10 +615,16 @@ def render_mobile(content: dict) -> str:
             f'<footer><a class="ghbtn" href="{escape(github.get("href", ""))}" target="_blank">'
             f'{octocat}{escape(github.get("label", "GitHub"))}</a></footer>'
         )
+    brain_link = content.get("brain_link")
+    brain_link_html = (
+        f'<p style="text-align:center;font-weight:700;font-size:17px;margin:8px 16px 4px">'
+        f'<a href="{escape(brain_link["href"])}" target="_blank">{escape(brain_link["text"])}</a></p>'
+        if brain_link else ""
+    )
     return (
         f'<div id="mobile"><h1>{escape(content["title"])}</h1>'
         f'<p class="sub">{escape(content["subtitle"])}</p>'
-        f"{cards}{quotes_html}{links_html}{footer}</div>"
+        f"{brain_link_html}{cards}{quotes_html}{links_html}{footer}</div>"
     )
 
 
