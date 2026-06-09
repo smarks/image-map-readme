@@ -78,12 +78,26 @@ OCTOCAT_PATH = (
     "1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
 )
 
+# The poster font ships WITH the engine (not the content dir): the same files are
+# used to MEASURE text here and are embedded into the page via @font-face below,
+# so the browser renders with identical metrics on every device and card text
+# always fits. PosterSans is Liberation Sans, subset + renamed (fonts/NOTICE.md).
+ENGINE_DIR = Path(__file__).resolve().parent
+FONT_DIR = ENGINE_DIR / "fonts"
+EMBED_FAMILY = "PosterSans"
+EMBEDDED_FONTS = (
+    (400, "normal", "PosterSans-Regular.ttf"),
+    (700, "normal", "PosterSans-Bold.ttf"),
+    (400, "italic", "PosterSans-Italic.ttf"),
+)
+
 FONT_CANDIDATES = (
+    # The embedded font first: measured here == rendered in the browser. The
+    # system fonts are only a safety net if the bundled file ever goes missing.
+    str(FONT_DIR / "PosterSans-Regular.ttf"),
     "/System/Library/Fonts/Helvetica.ttc",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
     "/Library/Fonts/Arial.ttf",
-    # Linux / CI: Liberation Sans is metric-compatible with Arial, so text
-    # wrapping measured here matches what a browser renders with Arial.
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 )
@@ -122,6 +136,24 @@ def get_font(size: int) -> ImageFont.FreeTypeFont | None:
                     continue
         _font_cache[size] = chosen
     return _font_cache[size]
+
+
+def embedded_font_faces() -> str:
+    """Return @font-face CSS embedding the poster font as base64 data URLs.
+
+    The page renders with the exact files :func:`text_width` measures with, so
+    wrapped lines are the same width in the browser as they were measured and
+    card text cannot spill its box — independent of the viewer's installed fonts.
+    """
+    faces = []
+    for weight, style, filename in EMBEDDED_FONTS:
+        encoded = base64.b64encode((FONT_DIR / filename).read_bytes()).decode("ascii")
+        faces.append(
+            f"@font-face{{font-family:'{EMBED_FAMILY}';font-style:{style};"
+            f"font-weight:{weight};font-display:swap;"
+            f"src:url(data:font/ttf;base64,{encoded}) format('truetype');}}"
+        )
+    return "\n".join(faces)
 
 
 def text_width(text: str, size: int) -> float:
@@ -509,11 +541,13 @@ def build_svg(content: dict, brain_height: int) -> str:
       <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#1F2433" flood-opacity="0.16"/>
     </filter>
     <style>
-      /* Render with the SAME family the build measures with (Helvetica on macOS,
-         Arial/Liberation elsewhere). 'Helvetica Neue' was leading here, but it is
-         ~2% wider than Helvetica, so the browser drew lines wider than they were
-         measured and bullet text spilled out of the cards. */
-      text {{ font-family: Helvetica, Arial, 'Liberation Sans', sans-serif; }}
+      /* Text uses the embedded PosterSans — the same font the build measured
+         with — so card text fits identically in any browser. The @font-face that
+         supplies it is defined at the document level (see build_html and the PNG
+         & PDF wrappers); document-level is honoured for inline-SVG text
+         everywhere, including iOS Safari, whereas an SVG-scoped @font-face is not.
+         Falls back to Helvetica/Arial only if the embedded font fails to load. */
+      text {{ font-family: '{EMBED_FAMILY}', Helvetica, Arial, sans-serif; }}
       .h1 {{ font-weight: 800; font-size: 132px; }}
       .subt {{ font-weight: 400; font-size: 36px; }}
       .tagt {{ font-weight: 600; font-size: 32px; font-style: italic; }}
@@ -639,7 +673,11 @@ def build_html(svg_text: str, content: dict) -> str:
     shows the poster on wide screens and the cards on narrow ones.
     """
     inline = embed_brain(svg_text).replace("<svg ", '<svg id="poster" ', 1)
-    return _HTML_SHELL.replace("__SVG__", inline).replace("__MOBILE__", render_mobile(content))
+    return (
+        _HTML_SHELL.replace("__FONTFACES__", embedded_font_faces())
+        .replace("__SVG__", inline)
+        .replace("__MOBILE__", render_mobile(content))
+    )
 
 
 _HTML_SHELL = """<!doctype html>
@@ -649,6 +687,7 @@ _HTML_SHELL = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spencer's README</title>
 <style>
+__FONTFACES__
   html,body{margin:0;height:100%;background:#EEEEF3;font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden}
   #stage{position:fixed;inset:0;cursor:grab;touch-action:none;overflow:hidden}
   #stage.grabbing{cursor:grabbing}
@@ -886,7 +925,8 @@ def render_png(svg_text: str) -> None:
     preview = PROJECT / "_preview.html"
     preview.write_text(
         "<!doctype html><meta charset=utf-8>"
-        "<style>html,body{margin:0;background:#EEEEF3}</style>" + embed_brain(svg_text)
+        "<style>" + embedded_font_faces()
+        + "html,body{margin:0;background:#EEEEF3}</style>" + embed_brain(svg_text)
     )
     subprocess.run(
         [
@@ -921,7 +961,8 @@ def render_pdf(svg_text: str) -> None:
     page = PROJECT / "_print.html"
     page.write_text(
         "<!doctype html><meta charset=utf-8><style>"
-        f"@page{{size:{width}px {height}px;margin:0}}"
+        + embedded_font_faces()
+        + f"@page{{size:{width}px {height}px;margin:0}}"
         "html,body{margin:0;padding:0;background:#EEEEF3}svg{display:block}"
         "</style>" + embed_brain(svg_text)
     )
