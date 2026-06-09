@@ -509,7 +509,11 @@ def build_svg(content: dict, brain_height: int) -> str:
       <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#1F2433" flood-opacity="0.16"/>
     </filter>
     <style>
-      text {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }}
+      /* Render with the SAME family the build measures with (Helvetica on macOS,
+         Arial/Liberation elsewhere). 'Helvetica Neue' was leading here, but it is
+         ~2% wider than Helvetica, so the browser drew lines wider than they were
+         measured and bullet text spilled out of the cards. */
+      text {{ font-family: Helvetica, Arial, 'Liberation Sans', sans-serif; }}
       .h1 {{ font-weight: 800; font-size: 132px; }}
       .subt {{ font-weight: 400; font-size: 36px; }}
       .tagt {{ font-weight: 600; font-size: 32px; font-style: italic; }}
