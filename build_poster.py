@@ -437,8 +437,13 @@ def render_markers(content: dict) -> str:
         markers = content.get("brain_hotspots", [])
     parts: list[str] = []
     for marker in markers:
-        tooltip = marker.get("tooltip")
-        href = marker.get("href")
+        tooltip = (marker.get("tooltip") or "").strip()
+        href = (marker.get("href") or "").strip()
+        # Optional hotspots: an unpopulated box (no tooltip AND no link) renders
+        # nothing at all. Scatter as many placeholder boxes as you like and fill
+        # in only the ones you want — the rest simply don't appear.
+        if not tooltip and not href:
+            continue
         tip_attr = f' data-tip="{escape(tooltip)}"' if tooltip else ""
         rect = (
             f'<rect class="hot" x="{marker["x"]}" y="{marker["y"]}" '
