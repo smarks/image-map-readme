@@ -509,7 +509,11 @@ def build_svg(content: dict, brain_height: int) -> str:
       <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#1F2433" flood-opacity="0.16"/>
     </filter>
     <style>
-      text {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }}
+      /* Render with the SAME family the build measures with (Helvetica on macOS,
+         Arial/Liberation elsewhere). 'Helvetica Neue' was leading here, but it is
+         ~2% wider than Helvetica, so the browser drew lines wider than they were
+         measured and bullet text spilled out of the cards. */
+      text {{ font-family: Helvetica, Arial, 'Liberation Sans', sans-serif; }}
       .h1 {{ font-weight: 800; font-size: 132px; }}
       .subt {{ font-weight: 400; font-size: 36px; }}
       .tagt {{ font-weight: 600; font-size: 32px; font-style: italic; }}
@@ -646,12 +650,12 @@ _HTML_SHELL = """<!doctype html>
 <title>Spencer's README</title>
 <style>
   html,body{margin:0;height:100%;background:#EEEEF3;font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden}
-  #stage{position:fixed;inset:0;cursor:grab;touch-action:none}
+  #stage{position:fixed;inset:0;cursor:grab;touch-action:none;overflow:hidden}
   #stage.grabbing{cursor:grabbing}
   #poster{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;user-select:none}
   #poster a{cursor:pointer}
-  #hud{position:fixed;left:16px;bottom:16px;display:flex;gap:8px;z-index:10}
-  #hud button{font:600 16px/1 'Helvetica Neue',Arial;background:#1F2433;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+  #hud{position:fixed;left:18px;bottom:22px;display:flex;gap:8px;z-index:30}
+  #hud button{font:600 17px/1 'Helvetica Neue',Arial;background:#1F2433;color:#fff;border:0;border-radius:10px;padding:12px 18px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#2D6CDF}
   #hint{position:fixed;right:16px;bottom:16px;z-index:10;background:rgba(31,36,51,.88);color:#fff;font:500 14px/1.4 'Helvetica Neue',Arial;padding:10px 14px;border-radius:10px;max-width:260px}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
@@ -672,7 +676,12 @@ _HTML_SHELL = """<!doctype html>
   #mobile .links a.btn{display:block;background:#EEF1FB;border:1px solid #2D6CDF;color:#2D6CDF;border-radius:12px;padding:14px 16px;margin:0 0 10px;text-decoration:none;font-weight:700;font-size:1rem;overflow-wrap:anywhere}
   #mobile .ghbtn{display:inline-flex;align-items:center;gap:9px;background:#2A2F3D;color:#fff;border-radius:14px;padding:13px 20px;text-decoration:none;font-weight:700}
   #mobile footer{text-align:center;margin-top:22px}
-  @media (max-width:820px){
+  /* Text fallback is for phones only: either viewport dimension <=540px means a
+     phone (in some orientation). Tablets (iPad mini portrait is 768 wide) have
+     both dimensions well above this, so they get the interactive poster. The
+     height clause is gated to touch (pointer:coarse) so short *desktop* windows
+     keep the interactive view exactly as before. */
+  @media (max-width:540px), (max-height:540px) and (pointer:coarse){
     html,body{overflow:auto;height:auto}
     #stage,#hud,#hint,#tip{display:none}
     #mobile{display:block}
@@ -684,11 +693,11 @@ _HTML_SHELL = """<!doctype html>
 __SVG__
 </div>
 <div id="hud">
-  <button id="zin">＋ Zoom in</button>
-  <button id="zout">－ Zoom out</button>
-  <button id="fit">⤢ Fit</button>
+  <button type="button" id="zin">＋ Zoom in</button>
+  <button type="button" id="zout">－ Zoom out</button>
+  <button type="button" id="fit">⤢ Fit</button>
 </div>
-<div id="hint">Drag to pan &middot; scroll / pinch to zoom &middot; hover the brain icons for notes &middot; click links to open them.</div>
+<div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; hover or tap the brain icons for notes &middot; click links to open them.</div>
 <div id="tip"></div>
 __MOBILE__
 <script>
@@ -710,27 +719,94 @@ __MOBILE__
     tx=cx-(cx-tx)*(ns/scale); ty=cy-(cy-ty)*(ns/scale); scale=ns; apply();
   }
   var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null;
+  // Active pointers, keyed by id. A mouse is always a single pointer, so it never
+  // enters the two-finger pinch path below — the desktop drag/click behaviour is
+  // unchanged. A second touch starts a pinch; a single touch pans exactly like a
+  // mouse drag does.
+  var pointers={}, pinch=null;
+  function ptList(){ return Object.keys(pointers).map(function(k){return pointers[k];}); }
+  function ptDist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
   stage.addEventListener('pointerdown',function(e){
+    pointers[e.pointerId]={x:e.clientX,y:e.clientY};
+    stage.setPointerCapture(e.pointerId);
+    var pts=ptList();
+    if(pts.length>=2){                 // second finger down → begin pinch-zoom
+      down=false; moved=true; target=null; hideTip();   // cancel any pan/tap in progress
+      pinch={d:ptDist(pts[0],pts[1]), r:stage.getBoundingClientRect()};
+      stage.classList.remove('grabbing');
+      return;
+    }
     down=true;moved=false;sx=e.clientX;sy=e.clientY;otx=tx;oty=ty;
     target=e.target.closest('a');
     hideTip();
-    stage.classList.add('grabbing'); stage.setPointerCapture(e.pointerId);
+    stage.classList.add('grabbing');
   });
   stage.addEventListener('pointermove',function(e){
+    if(pointers[e.pointerId]){ pointers[e.pointerId].x=e.clientX; pointers[e.pointerId].y=e.clientY; }
+    if(pinch){                         // two fingers → zoom about their midpoint
+      var pts=ptList();
+      if(pts.length>=2){
+        var nd=ptDist(pts[0],pts[1]);
+        if(nd>0 && pinch.d>0){
+          var mx=(pts[0].x+pts[1].x)/2, my=(pts[0].y+pts[1].y)/2;
+          zoomAt(mx-pinch.r.left, my-pinch.r.top, nd/pinch.d);
+        }
+        pinch.d=nd;
+      }
+      return;
+    }
     if(!down)return; var dx=e.clientX-sx, dy=e.clientY-sy;
     if(Math.abs(dx)+Math.abs(dy)>4)moved=true;
     tx=otx+dx; ty=oty+dy; apply();
   });
-  stage.addEventListener('pointerup',function(e){
+  function endPointer(e){
+    delete pointers[e.pointerId];
+    if(pinch){                         // lifting a finger ends (or hands off) the pinch
+      if(ptList().length<2){
+        pinch=null;
+        var rest=ptList();
+        if(rest.length===1){           // one finger remains → resume panning, no jump, no tap
+          down=true; moved=true; sx=rest[0].x; sy=rest[0].y; otx=tx; oty=ty;
+        }
+      }
+      stage.classList.remove('grabbing');
+      return;
+    }
     down=false; stage.classList.remove('grabbing');
-    if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href)window.open(href,'_blank'); }
+    if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href){ window.open(href,'_blank'); } target=null; return; }
     target=null;
-  });
+    if(e.pointerType!=='mouse' && !moved){   // touch tap on empty art toggles marker tooltips
+      var el=e.target.closest('[data-tip]');
+      if(el){ tip.textContent=el.getAttribute('data-tip'); tip.classList.add('show'); moveTip(e.clientX,e.clientY); }
+      else hideTip();
+    }
+  }
+  stage.addEventListener('pointerup',endPointer);
+  stage.addEventListener('pointercancel',endPointer);
   stage.addEventListener('wheel',function(e){
     e.preventDefault();
     var r=stage.getBoundingClientRect();
-    zoomAt(e.clientX-r.left,e.clientY-r.top, e.deltaY<0?1.12:1/1.12);
+    if(e.ctrlKey){            // trackpad pinch (and ctrl+wheel on a mouse) → zoom at cursor
+      zoomAt(e.clientX-r.left,e.clientY-r.top, e.deltaY<0?1.12:1/1.12);
+    }else{                    // two-finger scroll / wheel → pan, like every other canvas app
+      tx-=e.deltaX; ty-=e.deltaY; apply();
+    }
   },{passive:false});
+  // ── Keyboard controls (zoom, fit, nudge) ────────────────────────────────
+  window.addEventListener('keydown',function(e){
+    if(e.metaKey||e.ctrlKey||e.altKey)return;          // leave browser shortcuts alone
+    if(getComputedStyle(stage).display==='none')return; // text fallback is showing
+    var step=90, k=e.key;
+    if(k==='+'||k==='='){ zoomAt(stage.clientWidth/2,stage.clientHeight/2,1.2); }
+    else if(k==='-'||k==='_'){ zoomAt(stage.clientWidth/2,stage.clientHeight/2,1/1.2); }
+    else if(k==='0'||k==='f'||k==='F'){ fit(); }
+    else if(k==='ArrowLeft'){ tx+=step; apply(); }
+    else if(k==='ArrowRight'){ tx-=step; apply(); }
+    else if(k==='ArrowUp'){ ty+=step; apply(); }
+    else if(k==='ArrowDown'){ ty-=step; apply(); }
+    else return;
+    e.preventDefault();
+  });
   // ── Icon tooltips (pure hover) ──────────────────────────────────────────
   var tip=document.getElementById('tip');
   function moveTip(x,y){
@@ -742,14 +818,16 @@ __MOBILE__
   }
   function hideTip(){ tip.classList.remove('show'); }
   stage.addEventListener('pointerover',function(e){
-    if(down)return;
+    if(down || e.pointerType!=='mouse')return;   // touch tooltips are handled on tap, above
     var el=e.target.closest('[data-tip]');
     if(el){ tip.textContent=el.getAttribute('data-tip'); tip.classList.add('show'); moveTip(e.clientX,e.clientY); }
   });
   stage.addEventListener('pointerout',function(e){
+    if(e.pointerType!=='mouse')return;
     if(e.target.closest('[data-tip]')) hideTip();
   });
   stage.addEventListener('pointermove',function(e){
+    if(e.pointerType!=='mouse')return;           // pinned touch tip stays put until the next tap
     if(down){ hideTip(); return; }
     if(tip.classList.contains('show')) moveTip(e.clientX,e.clientY);
   });
@@ -757,6 +835,7 @@ __MOBILE__
   document.getElementById('zout').onclick=function(){zoomAt(stage.clientWidth/2,stage.clientHeight/2,1/1.25);};
   document.getElementById('fit').onclick=fit;
   window.addEventListener('resize',fit);
+  window.addEventListener('orientationchange',fit);   // re-center when an iPad rotates
   fit();
 })();
 </script>
