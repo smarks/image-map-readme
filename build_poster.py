@@ -680,6 +680,48 @@ def build_svg(content: dict, brain_height: int) -> str:
         )
         stack_bottom = link_y
 
+    # ── "Process" card: three icons that reveal pop-up text on hover ──
+    process = content.get("process")
+    if process and process.get("items"):
+        items = process["items"]
+        div_y = stack_bottom + 80
+        center_parts.append(
+            f'<rect x="{panel_cx - 720}" y="{div_y}" width="1440" height="2" fill="#E4E7EC"/>'
+        )
+        head_y = div_y + 86
+        center_parts.append(
+            f'<text x="{panel_cx}" y="{head_y}" text-anchor="middle" '
+            f'font-weight="800" font-size="54" fill="#1F2433">'
+            f'{escape(process.get("title", "Process"))}</text>'
+        )
+        center_parts.append(
+            f'<text x="{panel_cx}" y="{head_y + 50}" text-anchor="middle" '
+            f'font-size="32" fill="#8A91A3" font-style="italic">hover each icon</text>'
+        )
+        icon_size = 230
+        col_gap = 150
+        count = len(items)
+        row_x = panel_cx - (count * icon_size + (count - 1) * col_gap) // 2
+        icons_y = head_y + 100
+        for index, item in enumerate(items):
+            ix = row_x + index * (icon_size + col_gap)
+            encoded = base64.b64encode((PROJECT / item["icon"]).read_bytes()).decode("ascii")
+            uri = f"data:image/png;base64,{encoded}"
+            label = escape(item.get("label", ""))
+            label_svg = (
+                f'<text x="{ix + icon_size // 2}" y="{icons_y + icon_size + 46}" '
+                f'text-anchor="middle" font-weight="700" font-size="36" '
+                f'fill="#57606A">{label}</text>'
+            ) if label else ""
+            center_parts.append(
+                f'<g data-tip="{escape(item["tip"])}" style="cursor:help">'
+                f'<image x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size}" '
+                f'href="{uri}" xlink:href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
+                f'<rect x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size + 60}" '
+                f'fill="transparent"/>{label_svg}</g>'
+            )
+        stack_bottom = icons_y + icon_size + 80
+
     github = content.get("github_link")
     if github:
         label = github.get("label", "View on GitHub")
