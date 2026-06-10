@@ -520,25 +520,25 @@ def build_svg(content: dict, brain_height: int) -> str:
     brain_x = (CANVAS_WIDTH - brain_w) // 2
     brain_right = brain_x + brain_w
 
-    # Balance the two side columns by measured height so neither side towers
-    # over the other — this keeps the canvas compact and the composition even.
-    # The author's left/right split is treated as one pool; cards are placed
-    # tallest-first into whichever column is currently shorter (LPT packing).
-    pool = [
-        (card, layout_card(card, 0, COLUMN_TOP, COLUMN_WIDTH)[1])
-        for card in (*content["left_column"], *content["right_column"])
-    ]
-    pool.sort(key=lambda card_and_height: card_and_height[1], reverse=True)
-    column_cards: dict[int, list] = {LEFT_COLUMN_X: [], RIGHT_COLUMN_X: []}
-    running_height = {LEFT_COLUMN_X: 0, RIGHT_COLUMN_X: 0}
-    for card, height in pool:
-        target = (
-            LEFT_COLUMN_X
-            if running_height[LEFT_COLUMN_X] <= running_height[RIGHT_COLUMN_X]
-            else RIGHT_COLUMN_X
-        )
-        column_cards[target].append(card)
-        running_height[target] += height + COLUMN_GAP
+    # Keep the author's card order (read top-to-bottom down the left column, then
+    # the right) but split the single ordered list into two columns at the point
+    # that best balances their heights. So the first card lands top-left and the
+    # columns still come out even — order AND balance, no height-sorting shuffle.
+    ordered = [*content["left_column"], *content["right_column"]]
+    heights = [layout_card(card, 0, COLUMN_TOP, COLUMN_WIDTH)[1] for card in ordered]
+
+    def column_height(slice_heights: list[int]) -> int:
+        return sum(slice_heights) + COLUMN_GAP * max(0, len(slice_heights) - 1)
+
+    best_split, best_diff = max(1, len(ordered) - 1), None
+    for split in range(1, len(ordered)):
+        diff = abs(column_height(heights[:split]) - column_height(heights[split:]))
+        if best_diff is None or diff < best_diff:
+            best_diff, best_split = diff, split
+    column_cards: dict[int, list] = {
+        LEFT_COLUMN_X: ordered[:best_split],
+        RIGHT_COLUMN_X: ordered[best_split:],
+    }
 
     column_bottom = {}
     for column_x, cards in column_cards.items():
@@ -651,12 +651,15 @@ def build_svg(content: dict, brain_height: int) -> str:
     # bottom row sits below both the columns and the centre (brain) stack.
     bottom_y = max(balanced_bottom, stack_bottom + 60) + 10
     # Two passes: measure each bottom card's natural height, then render them all
-    # to the tallest so the row lines up (shorter cards gain white space).
-    _, about_h = layout_card(content["about"], 70, bottom_y, 1380)
+    # to the tallest so the row lines up (shorter cards gain white space). The
+    # wide left card is the endorsements card when present (else the about card,
+    # for the bundled template).
+    bottom_left = content.get("endorsements") or content["about"]
+    _, about_h = layout_card(bottom_left, 70, bottom_y, 1380)
     _, quotes_h = layout_quotes(content["quotes"], 1490, bottom_y, 1480)
     _, links_h = layout_links(content["links"], 3010, bottom_y, 1520)
     row_height = max(about_h, quotes_h, links_h)
-    about_svg, _ = layout_card(content["about"], 70, bottom_y, 1380, min_height=row_height)
+    about_svg, _ = layout_card(bottom_left, 70, bottom_y, 1380, min_height=row_height)
     quotes_svg, _ = layout_quotes(content["quotes"], 1490, bottom_y, 1480, min_height=row_height)
     links_svg, _ = layout_links(content["links"], 3010, bottom_y, 1520, min_height=row_height)
     canvas_height = bottom_y + row_height + 50
@@ -755,9 +758,10 @@ def _mobile_card(card: dict) -> str:
 
 def render_mobile(content: dict) -> str:
     """Render the no-image-map, stacked-card layout shown on phones."""
+    bottom_left = content.get("endorsements") or content["about"]
     cards = "".join(
         _mobile_card(card)
-        for card in content["left_column"] + content["right_column"] + [content["about"]]
+        for card in content["left_column"] + content["right_column"] + [bottom_left]
     )
     quotes = content["quotes"]
     quote_items = "".join(
@@ -839,10 +843,11 @@ __FONTFACES__
   #mobile .card li{margin:0 0 8px;line-height:1.45;font-size:1rem}
   #mobile .card .note{font-style:italic;color:#6A4FD0;margin:10px 0 0;font-size:.95rem}
   #mobile a{color:#2D6CDF}
-  #mobile .quotes{background:#2E2A5A;border-left-color:#6A4FD0}
-  #mobile .quotes h2,#mobile .quotes blockquote{color:#EDEEF4}
+  #mobile .quotes{background:#fff;border-left-color:#D9A441}
+  #mobile .quotes h2{color:#1F2433}
+  #mobile .quotes blockquote{color:#403B33}
   #mobile blockquote{margin:0 0 14px;font-style:italic;line-height:1.5}
-  #mobile blockquote .by{font-style:normal;font-weight:700;color:#FFB3C7;display:block;margin-top:3px;font-size:.9rem}
+  #mobile blockquote .by{font-style:normal;font-weight:700;color:#A8632B;display:block;margin-top:3px;font-size:.9rem}
   #mobile .links a.btn{display:block;background:#EEF1FB;border:1px solid #2D6CDF;color:#2D6CDF;border-radius:12px;padding:14px 16px;margin:0 0 10px;text-decoration:none;font-weight:700;font-size:1rem;overflow-wrap:anywhere}
   #mobile .ghbtn{display:inline-flex;align-items:center;gap:9px;background:#2A2F3D;color:#fff;border-radius:14px;padding:13px 20px;text-decoration:none;font-weight:700}
   #mobile footer{text-align:center;margin-top:22px}
