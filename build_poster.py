@@ -468,18 +468,29 @@ def layout_quotes(
         quote_top = cursor - 32
         text = "“" + item["text"] + "”"
         lines = wrap_tokens(tokenize(text), inner_width, QUOTE_SIZE)
+        by = item.get("by")
+        attr_text = f"— {by}" if by else ""
+        # Only append the attribution to the last line if it fits; otherwise give
+        # it its own line so it never spills past the card edge.
+        last_words = " ".join(word for word, _ in lines[-1]) if lines else ""
+        inline_attr = bool(by) and text_width(f"{last_words}   {attr_text}", QUOTE_SIZE) <= inner_width
         for line_index, line in enumerate(lines):
             is_last = line_index == len(lines) - 1
             attribution = ""
-            if is_last and item.get("by"):
+            if is_last and inline_attr:
                 attribution = (
-                    f' <tspan class="qa" fill="{attribution_color}">'
-                    f'— {escape(item["by"])}</tspan>'
+                    f' <tspan class="qa" fill="{attribution_color}">{escape(attr_text)}</tspan>'
                 )
             words = " ".join(word for word, _ in line)
             body.append(
                 f'<text x="{text_x}" y="{cursor}" class="q" fill="{ink}">'
                 f"{escape(words)}{attribution}</text>"
+            )
+            cursor += QUOTE_LINE_HEIGHT
+        if by and not inline_attr:
+            body.append(
+                f'<text x="{text_x}" y="{cursor}" class="qa" '
+                f'fill="{attribution_color}">{escape(attr_text)}</text>'
             )
             cursor += QUOTE_LINE_HEIGHT
         rules.append(
