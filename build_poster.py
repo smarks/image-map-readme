@@ -373,7 +373,7 @@ def collapsible(
     return (
         f'<g class="card" data-eh="{full_height}"{start_collapsed}>'
         f'<rect class="cbg" x="{x}" y="{y}" width="{width}" height="{full_height}" rx="26" '
-        f'fill="{bg}" filter="url(#shadow)"/>'
+        f'fill="{bg}" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
         f'<rect class="cbar" x="{bar_x}" y="{y}" width="16" height="{full_height}" rx="8" fill="{accent}"/>'
         f'<g class="cbody" display="inline">{body}</g>'
         f"{header}{toggle}</g>"
@@ -489,7 +489,7 @@ def layout_quotes(
     )
     divider = (
         f'<line x1="{x+CARD_PADDING}" y1="{y+118}" x2="{x+width-CARD_PADDING}" y2="{y+118}" '
-        f'stroke="url(#bar)" stroke-width="4"/>'
+        f'stroke="#D9A441" stroke-width="4"/>'
     )
     body_svg = divider + "".join(rules) + "".join(body)
     svg = collapsible(
@@ -788,13 +788,12 @@ def build_svg(content: dict, brain_height: int) -> str:
       a:hover .hot, .hot:hover {{ fill-opacity: 0.14; stroke-width: 4; }}
     </style>
   </defs>
-  <rect x="0" y="0" width="{CANVAS_WIDTH}" height="{canvas_height}" fill="#EEEEF3"/>
-  <rect x="0" y="0" width="{CANVAS_WIDTH}" height="18" fill="url(#bar)"/>
+  <rect x="0" y="0" width="{CANVAS_WIDTH}" height="{canvas_height}" fill="#FFFFFF"/>
   <text x="2300" y="206" text-anchor="middle" class="h1" fill="#1F2433">{escape(content["title"])}</text>
   <text x="2300" y="262" text-anchor="middle" class="subt" fill="#4A5163">{escape(content["subtitle"])}</text>
   <text x="2300" y="312" text-anchor="middle" class="tagt" fill="#6A4FD0">&#9472; {escape(content["tagline"])} &#9472;</text>
   <g fill="none" stroke="#FF965A" stroke-width="9" stroke-linecap="round">{''.join(f'<path d="{p}"/>' for p in connectors)}</g>
-  <rect x="{brain_card_x}" y="{brain_y - 25}" width="{brain_card_width}" height="{brain_card_height}" rx="34" fill="#FFFFFF" filter="url(#shadow)"/>
+  <rect x="{brain_card_x}" y="{brain_y - 25}" width="{brain_card_width}" height="{brain_card_height}" rx="34" fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>
   <image x="{brain_x}" y="{brain_y}" width="{brain_w}" height="{brain_h}" href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>
   {center_svg}
   {hotspots}
@@ -915,16 +914,16 @@ _HTML_SHELL = """<!doctype html>
 <title>Spencer's README</title>
 <style>
 __FONTFACES__
-  html,body{margin:0;height:100%;background:#EEEEF3;font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden}
+  html,body{margin:0;height:100%;background:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden}
   #stage{position:fixed;inset:0;cursor:grab;touch-action:none;overflow:hidden}
   #stage.grabbing{cursor:grabbing}
   #poster{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;user-select:none}
   #poster a{cursor:pointer}
   #poster .ctoggle{cursor:pointer}
-  #hud{position:fixed;left:18px;bottom:22px;display:flex;gap:8px;z-index:30}
-  #hud button{font:600 17px/1 'Helvetica Neue',Arial;background:#1F2433;color:#fff;border:0;border-radius:10px;padding:12px 18px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
-  #hud button:hover{background:#2D6CDF}
-  #hint{position:fixed;right:16px;bottom:16px;z-index:10;background:rgba(31,36,51,.88);color:#fff;font:500 14px/1.4 'Helvetica Neue',Arial;padding:10px 14px;border-radius:10px;max-width:260px}
+  #hud{position:fixed;right:14px;top:14px;display:flex;gap:6px;z-index:30}
+  #hud button{font:600 13px/1 'Helvetica Neue',Arial;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:8px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
+  #hud button:hover{background:#f3f4f6}
+  #hint{position:fixed;right:14px;top:58px;z-index:10;background:rgba(255,255,255,.95);color:#57606a;border:1px solid #d0d7de;font:500 12px/1.45 'Helvetica Neue',Arial;padding:8px 11px;border-radius:9px;max-width:230px}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
   #tip.show{opacity:1}
   #mobile{display:none;max-width:680px;margin:0 auto;padding:26px 18px 56px;color:#2A2F3D;text-align:left}
