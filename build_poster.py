@@ -322,15 +322,28 @@ def card_header(card: dict, x: int, y: int, width: int) -> str:
 
 
 def layout_card(
-    card: dict, x: int, y: int, width: int, dark: bool = False, min_height: int = 0
+    card: dict,
+    x: int,
+    y: int,
+    width: int,
+    dark: bool = False,
+    min_height: int = 0,
+    bulleted: bool = True,
 ) -> tuple[str, int]:
-    """Render a bulleted card; return (svg, height).
+    """Render a card; return (svg, height).
 
     ``min_height`` pads the card's box (white space at the bottom) so a row of
     cards can be made the same height regardless of how much text each holds.
+    ``bulleted=False`` renders each entry as an italic paragraph with no bullet
+    or hanging indent and a little more space between — for quote/testimonial
+    cards where dotted bullets would read wrong.
     """
     inner_width = width - 2 * CARD_PADDING
     text_fill = "#2A2F3D" if not dark else "#EDEEF4"
+    text_class = "b" if bulleted else "note"
+    leader = "•  " if bulleted else ""
+    indent = BULLET_INDENT if bulleted else 0
+    item_gap = BULLET_GAP if bulleted else 26
 
     wrapped = [wrap_tokens(tokenize(b), inner_width, BULLET_SIZE) for b in card["bullets"]]
     body = []
@@ -338,13 +351,13 @@ def layout_card(
     for lines in wrapped:
         for line_index, line in enumerate(lines):
             if line_index == 0:
-                body.append(render_line(line, x + CARD_PADDING, cursor, "b", text_fill, leader="•  "))
+                body.append(render_line(line, x + CARD_PADDING, cursor, text_class, text_fill, leader=leader))
             else:
                 body.append(
-                    render_line(line, x + CARD_PADDING + BULLET_INDENT, cursor, "b", text_fill)
+                    render_line(line, x + CARD_PADDING + indent, cursor, text_class, text_fill)
                 )
             cursor += BULLET_LINE_HEIGHT
-        cursor += BULLET_GAP
+        cursor += item_gap
 
     if card.get("note"):
         cursor += 18
@@ -655,11 +668,14 @@ def build_svg(content: dict, brain_height: int) -> str:
     # wide left card is the endorsements card when present (else the about card,
     # for the bundled template).
     bottom_left = content.get("endorsements") or content["about"]
-    _, about_h = layout_card(bottom_left, 70, bottom_y, 1380)
+    bottom_left_bulleted = "endorsements" not in content  # testimonials read as quotes
+    _, about_h = layout_card(bottom_left, 70, bottom_y, 1380, bulleted=bottom_left_bulleted)
     _, quotes_h = layout_quotes(content["quotes"], 1490, bottom_y, 1480)
     _, links_h = layout_links(content["links"], 3010, bottom_y, 1520)
     row_height = max(about_h, quotes_h, links_h)
-    about_svg, _ = layout_card(bottom_left, 70, bottom_y, 1380, min_height=row_height)
+    about_svg, _ = layout_card(
+        bottom_left, 70, bottom_y, 1380, min_height=row_height, bulleted=bottom_left_bulleted
+    )
     quotes_svg, _ = layout_quotes(content["quotes"], 1490, bottom_y, 1480, min_height=row_height)
     links_svg, _ = layout_links(content["links"], 3010, bottom_y, 1520, min_height=row_height)
     canvas_height = bottom_y + row_height + 50
