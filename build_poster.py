@@ -46,11 +46,17 @@ CANVAS_WIDTH = 4600
 COLUMN_WIDTH = 1000
 LEFT_COLUMN_X = 70
 RIGHT_COLUMN_X = 3530
-BRAIN_CARD_X = 1280
-BRAIN_CARD_WIDTH = 2040
+# BRAIN_IMAGE_* is the *authoring frame* the brain markers were placed against.
+# The brain is drawn larger and vertically centred at build time; markers are
+# transformed by the same scale+offset (see build_svg / render_markers) so they
+# stay glued to the art. Edit marker coordinates against this frame, not the
+# displayed size.
 BRAIN_IMAGE_X = 1300
 BRAIN_IMAGE_Y = 455
 BRAIN_IMAGE_WIDTH = 2000
+# How wide the brain is actually drawn. Bounded by the gap between the side
+# columns (RIGHT_COLUMN_X − (LEFT_COLUMN_X+COLUMN_WIDTH) = 2460) with a margin.
+BRAIN_DISPLAY_WIDTH = 2300
 BRAIN_NATIVE_WIDTH = 2752  # used only as a fallback aspect ratio
 BRAIN_NATIVE_HEIGHT = 2064
 COLUMN_TOP = 400
@@ -424,13 +430,17 @@ def connector(brain_x: int, card_x: int, card_center_y: int) -> tuple[str, str]:
     return path, node
 
 
-def render_markers(content: dict) -> str:
+def render_markers(content: dict, brain_x: float, brain_y: float, scale: float) -> str:
     """Render the invisible hover/click boxes laid over the brain art.
 
     Each marker may carry a ``tooltip`` (shown on hover in the interactive HTML
     page) and/or an ``href`` (opened on click). A marker with neither does
     nothing, so at least one is expected. Falls back to the legacy
     ``brain_hotspots`` key, whose entries are link-only.
+
+    Marker coordinates are authored against the ``BRAIN_IMAGE_*`` frame; they are
+    mapped onto the actually-drawn art (``brain_x``/``brain_y`` origin, ``scale``
+    factor) so they stay aligned no matter how the brain is sized or placed.
     """
     markers = content.get("brain_markers")
     if markers is None:
@@ -444,10 +454,13 @@ def render_markers(content: dict) -> str:
         # in only the ones you want — the rest simply don't appear.
         if not tooltip and not href:
             continue
+        marker_x = brain_x + (marker["x"] - BRAIN_IMAGE_X) * scale
+        marker_y = brain_y + (marker["y"] - BRAIN_IMAGE_Y) * scale
         tip_attr = f' data-tip="{escape(tooltip)}"' if tooltip else ""
         rect = (
-            f'<rect class="hot" x="{marker["x"]}" y="{marker["y"]}" '
-            f'width="{marker["w"]}" height="{marker["h"]}" rx="16"{tip_attr}/>'
+            f'<rect class="hot" x="{marker_x:.1f}" y="{marker_y:.1f}" '
+            f'width="{marker["w"] * scale:.1f}" height="{marker["h"] * scale:.1f}" '
+            f'rx="16"{tip_attr}/>'
         )
         if href:
             parts.append(f'<a href="{escape(href)}" target="_blank">{rect}</a>')
@@ -458,35 +471,65 @@ def render_markers(content: dict) -> str:
 
 def build_svg(content: dict, brain_height: int) -> str:
     """Assemble the full poster SVG string."""
-    brain_y_bottom = BRAIN_IMAGE_Y + brain_height
-    brain_card_height = brain_height + 50
     cards_svg: list[str] = []
     connectors: list[str] = []
     nodes: list[str] = []
 
-    # left column
-    y = COLUMN_TOP
-    for card in content["left_column"]:
-        svg, height = layout_card(card, LEFT_COLUMN_X, y, COLUMN_WIDTH)
-        cards_svg.append(svg)
-        center_y = y + height // 2
-        path, node = connector(BRAIN_IMAGE_X, LEFT_COLUMN_X + COLUMN_WIDTH, center_y)
-        connectors.append(path)
-        nodes.append(node)
-        y += height + COLUMN_GAP
-    left_bottom = y
+    # Brain horizontal geometry: drawn larger than the authoring frame and
+    # centred on the canvas. The vertical position is set after the columns are
+    # measured (below), so the brain can be centred against their height.
+    brain_scale = BRAIN_DISPLAY_WIDTH / BRAIN_IMAGE_WIDTH
+    brain_w = BRAIN_DISPLAY_WIDTH
+    brain_h = round(brain_height * brain_scale)
+    brain_x = (CANVAS_WIDTH - brain_w) // 2
+    brain_right = brain_x + brain_w
 
-    # right column
-    y = COLUMN_TOP
-    for card in content["right_column"]:
-        svg, height = layout_card(card, RIGHT_COLUMN_X, y, COLUMN_WIDTH)
-        cards_svg.append(svg)
-        center_y = y + height // 2
-        path, node = connector(BRAIN_IMAGE_X + BRAIN_IMAGE_WIDTH, RIGHT_COLUMN_X, center_y)
-        connectors.append(path)
-        nodes.append(node)
-        y += height + COLUMN_GAP
-    right_bottom = y
+    # Balance the two side columns by measured height so neither side towers
+    # over the other — this keeps the canvas compact and the composition even.
+    # The author's left/right split is treated as one pool; cards are placed
+    # tallest-first into whichever column is currently shorter (LPT packing).
+    pool = [
+        (card, layout_card(card, 0, COLUMN_TOP, COLUMN_WIDTH)[1])
+        for card in (*content["left_column"], *content["right_column"])
+    ]
+    pool.sort(key=lambda card_and_height: card_and_height[1], reverse=True)
+    column_cards: dict[int, list] = {LEFT_COLUMN_X: [], RIGHT_COLUMN_X: []}
+    running_height = {LEFT_COLUMN_X: 0, RIGHT_COLUMN_X: 0}
+    for card, height in pool:
+        target = (
+            LEFT_COLUMN_X
+            if running_height[LEFT_COLUMN_X] <= running_height[RIGHT_COLUMN_X]
+            else RIGHT_COLUMN_X
+        )
+        column_cards[target].append(card)
+        running_height[target] += height + COLUMN_GAP
+
+    column_bottom = {}
+    for column_x, cards in column_cards.items():
+        is_left = column_x == LEFT_COLUMN_X
+        brain_edge_x = brain_x if is_left else brain_right
+        card_edge_x = LEFT_COLUMN_X + COLUMN_WIDTH if is_left else RIGHT_COLUMN_X
+        y = COLUMN_TOP
+        for card in cards:
+            svg, height = layout_card(card, column_x, y, COLUMN_WIDTH)
+            cards_svg.append(svg)
+            path, node = connector(brain_edge_x, card_edge_x, y + height // 2)
+            connectors.append(path)
+            nodes.append(node)
+            y += height + COLUMN_GAP
+        column_bottom[column_x] = y
+    left_bottom = column_bottom[LEFT_COLUMN_X]
+    right_bottom = column_bottom[RIGHT_COLUMN_X]
+
+    # Centre the brain vertically against the balanced columns (biased slightly
+    # up, 0.42, so it sits closer to the title and the caption/links have room
+    # below it). brain_card sits just behind the art.
+    balanced_bottom = max(left_bottom, right_bottom)
+    brain_y = COLUMN_TOP + max(0, round((balanced_bottom - COLUMN_TOP - brain_h) * 0.42))
+    brain_y_bottom = brain_y + brain_h
+    brain_card_x = brain_x - 20
+    brain_card_width = brain_w + 40
+    brain_card_height = brain_h + 50
 
     # bottom row: about, quotes, links. The brain floor reserves room below the
     # brain for the caption and the GitHub-link button.
@@ -498,7 +541,7 @@ def build_svg(content: dict, brain_height: int) -> str:
     canvas_height = bottom_y + max(about_h, quotes_h, links_h) + 50
 
     # brain markers (hover tooltips + optional click-through links)
-    hotspots = render_markers(content)
+    hotspots = render_markers(content, brain_x, brain_y, brain_scale)
 
     # optional GitHub-link button, bottom-right under the brain
     github_svg = ""
@@ -511,7 +554,7 @@ def build_svg(content: dict, brain_height: int) -> str:
         gap = 18
         button_h = 68
         button_w = pad + icon_size + gap + int(text_width(label, font_size)) + pad
-        button_x = BRAIN_CARD_X + BRAIN_CARD_WIDTH - CARD_PADDING - button_w
+        button_x = brain_card_x + brain_card_width - CARD_PADDING - button_w
         button_y = brain_y_bottom + 150
         icon_x = button_x + pad
         icon_y = button_y + (button_h - icon_size) // 2
@@ -574,8 +617,8 @@ def build_svg(content: dict, brain_height: int) -> str:
   <text x="2300" y="262" text-anchor="middle" class="subt" fill="#4A5163">{escape(content["subtitle"])}</text>
   <text x="2300" y="312" text-anchor="middle" class="tagt" fill="#6A4FD0">&#9472; {escape(content["tagline"])} &#9472;</text>
   <g fill="none" stroke="#FF965A" stroke-width="9" stroke-linecap="round">{''.join(f'<path d="{p}"/>' for p in connectors)}</g>
-  <rect x="{BRAIN_CARD_X}" y="430" width="{BRAIN_CARD_WIDTH}" height="{brain_card_height}" rx="34" fill="#FFFFFF" filter="url(#shadow)"/>
-  <image x="{BRAIN_IMAGE_X}" y="{BRAIN_IMAGE_Y}" width="{BRAIN_IMAGE_WIDTH}" height="{brain_height}" href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>
+  <rect x="{brain_card_x}" y="{brain_y - 25}" width="{brain_card_width}" height="{brain_card_height}" rx="34" fill="#FFFFFF" filter="url(#shadow)"/>
+  <image x="{brain_x}" y="{brain_y}" width="{brain_w}" height="{brain_h}" href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>
   <text x="2300" y="{brain_y_bottom+92}" text-anchor="middle" class="b" fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>
   {brain_link_svg}
   {github_svg}
