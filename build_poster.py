@@ -355,6 +355,7 @@ def collapsible(
     accent_side: str = "left",
     bg: str = "#FFFFFF",
     collapsed: bool = False,
+    column: bool = False,
 ) -> str:
     """Wrap a card's header + body so it can collapse to a header-only pill.
 
@@ -370,8 +371,11 @@ def collapsible(
         f'<rect class="ctoggle" x="{x}" y="{y}" width="{width}" '
         f'height="{COLLAPSED_HEIGHT}" fill="#000" fill-opacity="0"/>'
     )
+    # column cards reflow as a stack in the interactive page (data-y = baked top)
+    classes = "card colcard" if column else "card"
+    col_attr = f' data-y="{y}"' if column else ""
     return (
-        f'<g class="card" data-eh="{full_height}"{start_collapsed}>'
+        f'<g class="{classes}" data-eh="{full_height}"{col_attr}{start_collapsed}>'
         f'<rect class="cbg" x="{x}" y="{y}" width="{width}" height="{full_height}" rx="26" '
         f'fill="{bg}" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
         f'<rect class="cbar" x="{bar_x}" y="{y}" width="16" height="{full_height}" rx="8" fill="{accent}"/>'
@@ -388,6 +392,7 @@ def layout_card(
     dark: bool = False,
     min_height: int = 0,
     bulleted: bool = True,
+    column: bool = False,
 ) -> tuple[str, int]:
     """Render a card; return (svg, height).
 
@@ -430,13 +435,13 @@ def layout_card(
     body_svg = card_divider(x, y, width) + "".join(body)
     svg = collapsible(
         x, y, width, height, card["color"],
-        card_header(card, x, y), body_svg, collapsed=collapsed,
+        card_header(card, x, y), body_svg, collapsed=collapsed, column=column,
     )
     return svg, height
 
 
 def layout_quotes(
-    quotes: dict, x: int, y: int, width: int, min_height: int = 0
+    quotes: dict, x: int, y: int, width: int, min_height: int = 0, column: bool = False
 ) -> tuple[str, int]:
     """Render 'words that resonate' as a warm, literary parchment card.
 
@@ -493,13 +498,14 @@ def layout_quotes(
     )
     body_svg = divider + "".join(rules) + "".join(body)
     svg = collapsible(
-        x, y, width, height, "#D9A441", header, body_svg, bg=background, collapsed=collapsed,
+        x, y, width, height, "#D9A441", header, body_svg,
+        bg=background, collapsed=collapsed, column=column,
     )
     return svg, height
 
 
 def layout_links(
-    links: dict, x: int, y: int, width: int, min_height: int = 0
+    links: dict, x: int, y: int, width: int, min_height: int = 0, column: bool = False
 ) -> tuple[str, int]:
     """Render the 'find me online' card with clickable buttons.
 
@@ -526,7 +532,7 @@ def layout_links(
     svg = collapsible(
         x, y, width, height, links["color"],
         card_header(header_card, x, y), body_svg,
-        accent_side="right", collapsed=collapsed,
+        accent_side="right", collapsed=collapsed, column=column,
     )
     return svg, height
 
@@ -584,88 +590,67 @@ def render_markers(content: dict, brain_x: float, brain_y: float, scale: float) 
 def build_svg(content: dict, brain_height: int) -> str:
     """Assemble the full poster SVG string."""
     cards_svg: list[str] = []
-    connectors: list[str] = []
-    nodes: list[str] = []
 
-    # Brain horizontal geometry: drawn larger than the authoring frame and
-    # centred on the canvas. The vertical position is set after the columns are
-    # measured (below), so the brain can be centred against their height.
-    brain_scale = BRAIN_DISPLAY_WIDTH / BRAIN_IMAGE_WIDTH
-    brain_w = BRAIN_DISPLAY_WIDTH
+    # ── Left sidebar: every card, stacked and collapsible (the page reflows the
+    # stack as cards fold). Positioned at full heights so the static exports show
+    # everything; the interactive JS folds + reflows on load. ──
+    LEFT_X = 70
+    SIDEBAR_W = 1000
+    sidebar: list[tuple[str, dict]] = [
+        ("card", card) for card in content["left_column"] + content["right_column"]
+    ]
+    if content.get("endorsements"):
+        sidebar.append(("endorse", content["endorsements"]))
+    sidebar.append(("quotes", content["quotes"]))
+    sidebar.append(("links", content["links"]))
+
+    y = COLUMN_TOP
+    sidebar_collapsed_bottom = COLUMN_TOP
+    for kind, card in sidebar:
+        if kind == "endorse":
+            svg, height = layout_card(card, LEFT_X, y, SIDEBAR_W, bulleted=False, column=True)
+        elif kind == "quotes":
+            svg, height = layout_quotes(card, LEFT_X, y, SIDEBAR_W, column=True)
+        elif kind == "links":
+            svg, height = layout_links(card, LEFT_X, y, SIDEBAR_W, column=True)
+        else:
+            svg, height = layout_card(card, LEFT_X, y, SIDEBAR_W, column=True)
+        cards_svg.append(svg)
+        initial = COLLAPSED_HEIGHT if card.get("collapsed") else height
+        sidebar_collapsed_bottom += initial + COLUMN_GAP
+        y += height + COLUMN_GAP
+    sidebar_full_bottom = y
+
+    # ── Right panel: the brain map as one big collapsible card ──
+    panel_x = LEFT_X + SIDEBAR_W + 70
+    panel_w = CANVAS_WIDTH - panel_x - 70
+    panel_cx = panel_x + panel_w // 2
+    brain_x = panel_x + CARD_PADDING
+    brain_w = panel_w - 2 * CARD_PADDING
+    brain_scale = brain_w / BRAIN_IMAGE_WIDTH
     brain_h = round(brain_height * brain_scale)
-    brain_x = (CANVAS_WIDTH - brain_w) // 2
-    brain_right = brain_x + brain_w
+    brain_card_y = COLUMN_TOP
+    brain_collapsed = bool(content.get("brain_collapsed"))
+    img_y = brain_card_y + 140
+    img_bottom = img_y + brain_h
 
-    # Keep the author's card order (read top-to-bottom down the left column, then
-    # the right) but split the single ordered list into two columns at the point
-    # that best balances their heights. So the first card lands top-left and the
-    # columns still come out even — order AND balance, no height-sorting shuffle.
-    ordered = [*content["left_column"], *content["right_column"]]
-    heights = [layout_card(card, 0, COLUMN_TOP, COLUMN_WIDTH)[1] for card in ordered]
-
-    def column_height(slice_heights: list[int]) -> int:
-        return sum(slice_heights) + COLUMN_GAP * max(0, len(slice_heights) - 1)
-
-    best_split, best_diff = max(1, len(ordered) - 1), None
-    for split in range(1, len(ordered)):
-        diff = abs(column_height(heights[:split]) - column_height(heights[split:]))
-        if best_diff is None or diff < best_diff:
-            best_diff, best_split = diff, split
-    column_cards: dict[int, list] = {
-        LEFT_COLUMN_X: ordered[:best_split],
-        RIGHT_COLUMN_X: ordered[best_split:],
-    }
-
-    column_bottom = {}
-    for column_x, cards in column_cards.items():
-        is_left = column_x == LEFT_COLUMN_X
-        brain_edge_x = brain_x if is_left else brain_right
-        card_edge_x = LEFT_COLUMN_X + COLUMN_WIDTH if is_left else RIGHT_COLUMN_X
-        y = COLUMN_TOP
-        for card in cards:
-            svg, height = layout_card(card, column_x, y, COLUMN_WIDTH)
-            cards_svg.append(svg)
-            path, node = connector(brain_edge_x, card_edge_x, y + height // 2)
-            connectors.append(path)
-            nodes.append(node)
-            y += height + COLUMN_GAP
-        column_bottom[column_x] = y
-    left_bottom = column_bottom[LEFT_COLUMN_X]
-    right_bottom = column_bottom[RIGHT_COLUMN_X]
-
-    # The brain is the centrepiece. With a presentation thumbnail it anchors near
-    # the top and the thumbnail fills the space below it; without one it is centred
-    # against the balanced columns.
-    balanced_bottom = max(left_bottom, right_bottom)
-    brain_link = content.get("brain_link")
-    thumb_name = brain_link.get("thumbnail") if brain_link else None
-    if thumb_name:
-        brain_y = COLUMN_TOP + 40
-    else:
-        brain_y = COLUMN_TOP + max(0, round((balanced_bottom - COLUMN_TOP - brain_h) * 0.42))
-    brain_y_bottom = brain_y + brain_h
-    brain_card_x = brain_x - 20
-    brain_card_width = brain_w + 40
-    brain_card_height = brain_h + 50
-
-    # ── Below-brain stack: caption, optional presentation thumbnail, link, GitHub.
     center_parts: list[str] = []
-    caption_y = brain_y_bottom + 76
+    caption_y = img_bottom + 76
     center_parts.append(
-        f'<text x="2300" y="{caption_y}" text-anchor="middle" class="b" '
+        f'<text x="{panel_cx}" y="{caption_y}" text-anchor="middle" class="b" '
         f'fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>'
     )
     stack_bottom = caption_y
-
+    brain_link = content.get("brain_link")
+    thumb_name = brain_link.get("thumbnail") if brain_link else None
     if thumb_name and brain_link:
-        thumb_bytes = (PROJECT / thumb_name).read_bytes()
-        thumb_b64 = base64.b64encode(thumb_bytes).decode("ascii")
+        thumb_b64 = base64.b64encode((PROJECT / thumb_name).read_bytes()).decode("ascii")
         mime = "jpeg" if thumb_name.lower().endswith((".jpg", ".jpeg")) else "png"
         with Image.open(PROJECT / thumb_name) as thumb_image:
             thumb_ratio = thumb_image.height / thumb_image.width
-        thumb_w = 1180
+        thumb_w = min(1500, panel_w - 2 * CARD_PADDING - 200)
         thumb_h = round(thumb_w * thumb_ratio)
-        thumb_x = (CANVAS_WIDTH - thumb_w) // 2
+        thumb_x = panel_cx - thumb_w // 2
         thumb_y = caption_y + 44
         frame = 12
         href = escape(brain_link["href"])
@@ -674,24 +659,22 @@ def build_svg(content: dict, brain_height: int) -> str:
             f'<a href="{href}" target="_blank">'
             f'<rect x="{thumb_x - frame}" y="{thumb_y - frame}" '
             f'width="{thumb_w + 2 * frame}" height="{thumb_h + 2 * frame}" rx="22" '
-            f'fill="#FFFFFF" filter="url(#shadow)"/>'
+            f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
             f'<image x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" '
-            f'href="{data_uri}" xlink:href="{data_uri}" preserveAspectRatio="xMidYMid meet"/>'
-            f'<rect x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" rx="12" '
-            f'fill="none" stroke="#E2E5EE" stroke-width="2"/></a>'
+            f'href="{data_uri}" xlink:href="{data_uri}" preserveAspectRatio="xMidYMid meet"/></a>'
         )
         link_y = thumb_y + thumb_h + 72
         center_parts.append(
             f'<a href="{href}" target="_blank">'
-            f'<text x="2300" y="{link_y}" text-anchor="middle" class="lnk" '
+            f'<text x="{panel_cx}" y="{link_y}" text-anchor="middle" class="lnk" '
             f'font-weight="700" font-size="40">{escape(brain_link["text"])}</text></a>'
         )
         stack_bottom = link_y + 16
     elif brain_link:
-        link_y = brain_y_bottom + 300
+        link_y = img_bottom + 160
         center_parts.append(
             f'<a href="{escape(brain_link["href"])}" target="_blank">'
-            f'<text x="2300" y="{link_y}" text-anchor="middle" class="lnk" '
+            f'<text x="{panel_cx}" y="{link_y}" text-anchor="middle" class="lnk" '
             f'font-weight="700" font-size="40">{escape(brain_link["text"])}</text></a>'
         )
         stack_bottom = link_y
@@ -705,13 +688,9 @@ def build_svg(content: dict, brain_height: int) -> str:
         gap = 18
         button_h = 68
         button_w = pad + icon_size + gap + int(text_width(label, font_size)) + pad
-        if thumb_name:  # centred under the stack
-            button_x = (CANVAS_WIDTH - button_w) // 2
-            button_y = stack_bottom + 30
-            stack_bottom = button_y + button_h
-        else:  # bottom-right of the brain card, as before
-            button_x = brain_card_x + brain_card_width - CARD_PADDING - button_w
-            button_y = brain_y_bottom + 150
+        button_x = panel_cx - button_w // 2
+        button_y = stack_bottom + 34
+        stack_bottom = button_y + button_h
         icon_x = button_x + pad
         icon_y = button_y + (button_h - icon_size) // 2
         gh_scale = icon_size / 16
@@ -722,39 +701,32 @@ def build_svg(content: dict, brain_height: int) -> str:
             f'<text x="{icon_x + icon_size + gap}" y="{button_y + button_h // 2 + 11}" '
             f'font-weight="700" font-size="{font_size}" fill="#FFFFFF">{escape(label)}</text></a>'
         )
-    center_svg = "".join(center_parts)
 
-    # bottom row sits below both the columns and the centre (brain) stack.
-    bottom_y = max(balanced_bottom, stack_bottom + 60) + 10
-    # Two passes: measure each bottom card's natural height, then render them all
-    # to the tallest so the row lines up (shorter cards gain white space). The
-    # wide left card is the endorsements card when present (else the about card,
-    # for the bundled template).
-    bottom_left = content.get("endorsements") or content["about"]
-    bottom_left_bulleted = "endorsements" not in content  # testimonials read as quotes
-    _, about_h = layout_card(bottom_left, 70, bottom_y, 1380, bulleted=bottom_left_bulleted)
-    _, quotes_h = layout_quotes(content["quotes"], 1490, bottom_y, 1480)
-    _, links_h = layout_links(content["links"], 3010, bottom_y, 1520)
-    row_height = max(about_h, quotes_h, links_h)
-    about_svg, _ = layout_card(
-        bottom_left, 70, bottom_y, 1380, min_height=row_height, bulleted=bottom_left_bulleted
+    brain_full_h = stack_bottom - brain_card_y + 50
+    hotspots = render_markers(content, brain_x, img_y, brain_scale)
+    brain_title = content.get("brain_title", "My brain — poke around the icons")
+    brain_header = (
+        disclosure_triangle(panel_x + CARD_PADDING + 12, brain_card_y + 56, False)
+        + f'<text x="{panel_x + CARD_PADDING + 44}" y="{brain_card_y + 78}" class="cardh" '
+        f'fill="#1F2433">{escape(brain_title)}</text>'
     )
-    quotes_svg, _ = layout_quotes(content["quotes"], 1490, bottom_y, 1480, min_height=row_height)
-    links_svg, _ = layout_links(content["links"], 3010, bottom_y, 1520, min_height=row_height)
-    canvas_height = bottom_y + row_height + 50
-    # Height the interactive page fits to: with the bottom row's start-collapsed
-    # cards folded, the canvas can sit tighter (no dead space below the pills).
-    # The full canvas_height stays the viewBox, so expanding a card never clips
-    # and the static exports show everything.
-    bottom_initial = max(
-        COLLAPSED_HEIGHT if bottom_left.get("collapsed") else about_h,
-        COLLAPSED_HEIGHT if content["quotes"].get("collapsed") else quotes_h,
-        COLLAPSED_HEIGHT if content["links"].get("collapsed") else links_h,
+    brain_body = (
+        card_divider(panel_x, brain_card_y, panel_w)
+        + f'<image x="{brain_x}" y="{img_y}" width="{brain_w}" height="{brain_h}" '
+        f'href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>'
+        + hotspots
+        + "".join(center_parts)
     )
-    fit_height = bottom_y + bottom_initial + 50
+    cards_svg.append(
+        collapsible(
+            panel_x, brain_card_y, panel_w, brain_full_h, "#2D6CDF",
+            brain_header, brain_body, collapsed=brain_collapsed,
+        )
+    )
 
-    # brain markers (hover tooltips + optional click-through links)
-    hotspots = render_markers(content, brain_x, brain_y, brain_scale)
+    brain_initial_bottom = brain_card_y + (COLLAPSED_HEIGHT if brain_collapsed else brain_full_h)
+    canvas_height = max(sidebar_full_bottom, brain_card_y + brain_full_h) + 50
+    fit_height = max(sidebar_collapsed_bottom, brain_initial_bottom) + 50
 
     head = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 {CANVAS_WIDTH} {canvas_height}" width="{CANVAS_WIDTH}" height="{canvas_height}" data-fit-h="{fit_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -792,14 +764,7 @@ def build_svg(content: dict, brain_height: int) -> str:
   <text x="2300" y="206" text-anchor="middle" class="h1" fill="#1F2433">{escape(content["title"])}</text>
   <text x="2300" y="262" text-anchor="middle" class="subt" fill="#4A5163">{escape(content["subtitle"])}</text>
   <text x="2300" y="312" text-anchor="middle" class="tagt" fill="#6A4FD0">&#9472; {escape(content["tagline"])} &#9472;</text>
-  <g fill="none" stroke="#FF965A" stroke-width="9" stroke-linecap="round">{''.join(f'<path d="{p}"/>' for p in connectors)}</g>
-  <rect x="{brain_card_x}" y="{brain_y - 25}" width="{brain_card_width}" height="{brain_card_height}" rx="34" fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>
-  <image x="{brain_x}" y="{brain_y}" width="{brain_w}" height="{brain_h}" href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>
-  {center_svg}
-  {hotspots}
-  <g fill="#FF965A" stroke="#FFFFFF" stroke-width="4">{''.join(nodes)}</g>
   {''.join(cards_svg)}
-  {about_svg}{quotes_svg}{links_svg}
 </svg>
 """
     return head
@@ -899,6 +864,8 @@ def build_html(svg_text: str, content: dict) -> str:
     return (
         _HTML_SHELL.replace("__FONTFACES__", embedded_font_faces())
         .replace("__COLLAPSED_HEIGHT__", str(COLLAPSED_HEIGHT))
+        .replace("__COLUMN_TOP__", str(COLUMN_TOP))
+        .replace("__COLUMN_GAP__", str(COLUMN_GAP))
         .replace("__TRI_DOWN__", TRI_DOWN)
         .replace("__TRI_RIGHT__", TRI_RIGHT)
         .replace("__SVG__", inline)
@@ -991,6 +958,17 @@ __MOBILE__
   var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null,toggleTarget=null;
   // ── Collapsible cards: toggle a card between its full slot and a header pill.
   var CH=__COLLAPSED_HEIGHT__, TRI_DOWN='__TRI_DOWN__', TRI_RIGHT='__TRI_RIGHT__';
+  var COLTOP=__COLUMN_TOP__, COLGAP=__COLUMN_GAP__;
+  // The left sidebar (.colcard) reflows as a tight stack: each card is shifted by
+  // (running y − its baked y) so folding one slides the rest up.
+  function reflow(){
+    var cols=svg.querySelectorAll('.colcard'), y=COLTOP;
+    for(var i=0;i<cols.length;i++){
+      var c=cols[i];
+      c.setAttribute('transform','translate(0,'+(y-(+c.getAttribute('data-y')))+')');
+      y+=(c.classList.contains('collapsed')?CH:+c.getAttribute('data-eh'))+COLGAP;
+    }
+  }
   function toggleCard(card){
     if(!card)return;
     var collapsed=card.classList.toggle('collapsed');
@@ -999,6 +977,7 @@ __MOBILE__
     for(var i=0;i<rects.length;i++) rects[i].setAttribute('height',h);
     var body=card.querySelector('.cbody'); if(body) body.setAttribute('display',collapsed?'none':'inline');
     var tri=card.querySelector('.ctri'); if(tri) tri.setAttribute('points',collapsed?TRI_RIGHT:TRI_DOWN);
+    reflow();
   }
   // Active pointers, keyed by id. A mouse is always a single pointer, so it never
   // enters the two-finger pinch path below — the desktop drag/click behaviour is
@@ -1124,6 +1103,7 @@ __MOBILE__
   // SVG/PNG/PDF stay fully expanded).
   var startCollapsed=svg.querySelectorAll('.card[data-start-collapsed]');
   for(var ci=0;ci<startCollapsed.length;ci++) toggleCard(startCollapsed[ci]);
+  reflow();
   fit();
 })();
 </script>
