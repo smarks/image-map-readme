@@ -321,8 +321,14 @@ def card_header(card: dict, x: int, y: int, width: int) -> str:
     )
 
 
-def layout_card(card: dict, x: int, y: int, width: int, dark: bool = False) -> tuple[str, int]:
-    """Render a bulleted card; return (svg, height)."""
+def layout_card(
+    card: dict, x: int, y: int, width: int, dark: bool = False, min_height: int = 0
+) -> tuple[str, int]:
+    """Render a bulleted card; return (svg, height).
+
+    ``min_height`` pads the card's box (white space at the bottom) so a row of
+    cards can be made the same height regardless of how much text each holds.
+    """
     inner_width = width - 2 * CARD_PADDING
     text_fill = "#2A2F3D" if not dark else "#EDEEF4"
 
@@ -347,7 +353,7 @@ def layout_card(card: dict, x: int, y: int, width: int, dark: bool = False) -> t
             body.append(render_line(line, x + CARD_PADDING, cursor, "note", "#6A4FD0"))
             cursor += BULLET_LINE_HEIGHT
 
-    height = cursor - y + 26
+    height = max(cursor - y + 26, min_height)
     accent = card["color"]
     rects = (
         f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" fill="#FFFFFF" filter="url(#shadow)"/>'
@@ -357,45 +363,75 @@ def layout_card(card: dict, x: int, y: int, width: int, dark: bool = False) -> t
     return svg, height
 
 
-def layout_quotes(quotes: dict, x: int, y: int, width: int) -> tuple[str, int]:
-    """Render the offset 'words that resonate' card."""
-    background = quotes.get("bg", "#2E2A5A")  # deep indigo: offset, not stark black
-    inner_width = width - 2 * CARD_PADDING
+def layout_quotes(
+    quotes: dict, x: int, y: int, width: int, min_height: int = 0
+) -> tuple[str, int]:
+    """Render 'words that resonate' as a warm, literary parchment card.
+
+    A deliberate contrast to the dark block it used to be: an ivory paper card
+    that sits with the others (shadow, gradient divider echoing the top bar), a
+    gold blockquote rule beside each quote, and warm terracotta attributions.
+    ``min_height`` pads the box so the bottom row of cards lines up.
+    """
+    background = quotes.get("bg", "#FFFFFF")  # white, consistent with its neighbours
+    rule_x = x + CARD_PADDING
+    text_x = x + CARD_PADDING + 34  # clear the blockquote rule
+    inner_width = width - 2 * CARD_PADDING - 34
+    ink = "#403B33"
+    attribution_color = "#A8632B"  # warm terracotta
     body = []
-    cursor = y + 196
+    rules = []
+    cursor = y + 200
     for item in quotes["items"]:
-        text = '"' + item["text"] + '"'
+        quote_top = cursor - 32
+        text = "“" + item["text"] + "”"
         lines = wrap_tokens(tokenize(text), inner_width, QUOTE_SIZE)
         for line_index, line in enumerate(lines):
             is_last = line_index == len(lines) - 1
             attribution = ""
             if is_last and item.get("by"):
                 attribution = (
-                    f' <tspan class="qa" fill="#FFB3C7">— {escape(item["by"])}</tspan>'
+                    f' <tspan class="qa" fill="{attribution_color}">'
+                    f'— {escape(item["by"])}</tspan>'
                 )
             words = " ".join(word for word, _ in line)
             body.append(
-                f'<text x="{x+CARD_PADDING}" y="{cursor}" class="q" fill="#EDEEF4">'
+                f'<text x="{text_x}" y="{cursor}" class="q" fill="{ink}">'
                 f"{escape(words)}{attribution}</text>"
             )
             cursor += QUOTE_LINE_HEIGHT
-        cursor += 14
+        rules.append(
+            f'<rect x="{rule_x}" y="{quote_top}" width="5" '
+            f'height="{cursor - QUOTE_LINE_HEIGHT + 10 - quote_top}" rx="2.5" fill="#D9A441"/>'
+        )
+        cursor += 24
 
-    height = cursor - y + 24
+    height = max(cursor - y + 24, min_height)
     header = (
-        f'<text x="{x+CARD_PADDING}" y="{y+96}" font-weight="800" font-size="112" fill="#9486F2">&#8220;</text>'
-        f'<text x="{x+CARD_PADDING+126}" y="{y+82}" class="cardh" fill="#FFFFFF">{escape(quotes["title"])}</text>'
-        f'<line x1="{x+CARD_PADDING}" y1="{y+118}" x2="{x+width-CARD_PADDING}" y2="{y+118}" stroke="#4A4585" stroke-width="3"/>'
+        f'<text x="{x+CARD_PADDING}" y="{y+106}" font-weight="800" font-size="120" '
+        f'fill="#E0B86A">&#8220;</text>'
+        f'<text x="{x+CARD_PADDING+136}" y="{y+82}" class="cardh" fill="#2A2620">'
+        f'{escape(quotes["title"])}</text>'
+        f'<line x1="{x+CARD_PADDING}" y1="{y+118}" x2="{x+width-CARD_PADDING}" y2="{y+118}" '
+        f'stroke="url(#bar)" stroke-width="4"/>'
     )
     svg = (
-        f'<g><rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" fill="{background}"/>'
-        f"{header}{''.join(body)}</g>"
+        f'<g><rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" '
+        f'fill="{background}" filter="url(#shadow)"/>'
+        f'<rect x="{x}" y="{y}" width="16" height="{height}" rx="8" fill="#D9A441"/>'
+        f"{header}{''.join(rules)}{''.join(body)}</g>"
     )
     return svg, height
 
 
-def layout_links(links: dict, x: int, y: int, width: int) -> tuple[str, int]:
-    """Render the 'find me online' card with clickable buttons."""
+def layout_links(
+    links: dict, x: int, y: int, width: int, min_height: int = 0
+) -> tuple[str, int]:
+    """Render the 'find me online' card with clickable buttons.
+
+    ``min_height`` pads the box so it can match the height of the other cards in
+    its row; the extra is white space below the buttons.
+    """
     buttons = []
     cursor = y + 150
     button_x = x + CARD_PADDING
@@ -409,7 +445,7 @@ def layout_links(links: dict, x: int, y: int, width: int) -> tuple[str, int]:
         )
         cursor += BUTTON_HEIGHT + BUTTON_GAP
 
-    height = cursor - y + 18
+    height = max(cursor - y + 18, min_height)
     header_card = {"icon": links["icon"], "color": links["color"], "title": links["title"]}
     svg = (
         f'<g><rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" fill="#FFFFFF" filter="url(#shadow)"/>'
@@ -521,30 +557,69 @@ def build_svg(content: dict, brain_height: int) -> str:
     left_bottom = column_bottom[LEFT_COLUMN_X]
     right_bottom = column_bottom[RIGHT_COLUMN_X]
 
-    # Centre the brain vertically against the balanced columns (biased slightly
-    # up, 0.42, so it sits closer to the title and the caption/links have room
-    # below it). brain_card sits just behind the art.
+    # The brain is the centrepiece. With a presentation thumbnail it anchors near
+    # the top and the thumbnail fills the space below it; without one it is centred
+    # against the balanced columns.
     balanced_bottom = max(left_bottom, right_bottom)
-    brain_y = COLUMN_TOP + max(0, round((balanced_bottom - COLUMN_TOP - brain_h) * 0.42))
+    brain_link = content.get("brain_link")
+    thumb_name = brain_link.get("thumbnail") if brain_link else None
+    if thumb_name:
+        brain_y = COLUMN_TOP + 40
+    else:
+        brain_y = COLUMN_TOP + max(0, round((balanced_bottom - COLUMN_TOP - brain_h) * 0.42))
     brain_y_bottom = brain_y + brain_h
     brain_card_x = brain_x - 20
     brain_card_width = brain_w + 40
     brain_card_height = brain_h + 50
 
-    # bottom row: about, quotes, links. The brain floor reserves room below the
-    # brain for the caption and the GitHub-link button.
-    brain_reserve = 400 if content.get("brain_link") else 250
-    bottom_y = max(left_bottom, right_bottom, brain_y_bottom + brain_reserve) + 10
-    about_svg, about_h = layout_card(content["about"], 70, bottom_y, 1380)
-    quotes_svg, quotes_h = layout_quotes(content["quotes"], 1490, bottom_y, 1480)
-    links_svg, links_h = layout_links(content["links"], 3010, bottom_y, 1520)
-    canvas_height = bottom_y + max(about_h, quotes_h, links_h) + 50
+    # ── Below-brain stack: caption, optional presentation thumbnail, link, GitHub.
+    center_parts: list[str] = []
+    caption_y = brain_y_bottom + 76
+    center_parts.append(
+        f'<text x="2300" y="{caption_y}" text-anchor="middle" class="b" '
+        f'fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>'
+    )
+    stack_bottom = caption_y
 
-    # brain markers (hover tooltips + optional click-through links)
-    hotspots = render_markers(content, brain_x, brain_y, brain_scale)
+    if thumb_name and brain_link:
+        thumb_bytes = (PROJECT / thumb_name).read_bytes()
+        thumb_b64 = base64.b64encode(thumb_bytes).decode("ascii")
+        mime = "jpeg" if thumb_name.lower().endswith((".jpg", ".jpeg")) else "png"
+        with Image.open(PROJECT / thumb_name) as thumb_image:
+            thumb_ratio = thumb_image.height / thumb_image.width
+        thumb_w = 1180
+        thumb_h = round(thumb_w * thumb_ratio)
+        thumb_x = (CANVAS_WIDTH - thumb_w) // 2
+        thumb_y = caption_y + 44
+        frame = 12
+        href = escape(brain_link["href"])
+        data_uri = f"data:image/{mime};base64,{thumb_b64}"
+        center_parts.append(
+            f'<a href="{href}" target="_blank">'
+            f'<rect x="{thumb_x - frame}" y="{thumb_y - frame}" '
+            f'width="{thumb_w + 2 * frame}" height="{thumb_h + 2 * frame}" rx="22" '
+            f'fill="#FFFFFF" filter="url(#shadow)"/>'
+            f'<image x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" '
+            f'href="{data_uri}" xlink:href="{data_uri}" preserveAspectRatio="xMidYMid meet"/>'
+            f'<rect x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" rx="12" '
+            f'fill="none" stroke="#E2E5EE" stroke-width="2"/></a>'
+        )
+        link_y = thumb_y + thumb_h + 72
+        center_parts.append(
+            f'<a href="{href}" target="_blank">'
+            f'<text x="2300" y="{link_y}" text-anchor="middle" class="lnk" '
+            f'font-weight="700" font-size="40">{escape(brain_link["text"])}</text></a>'
+        )
+        stack_bottom = link_y + 16
+    elif brain_link:
+        link_y = brain_y_bottom + 300
+        center_parts.append(
+            f'<a href="{escape(brain_link["href"])}" target="_blank">'
+            f'<text x="2300" y="{link_y}" text-anchor="middle" class="lnk" '
+            f'font-weight="700" font-size="40">{escape(brain_link["text"])}</text></a>'
+        )
+        stack_bottom = link_y
 
-    # optional GitHub-link button, bottom-right under the brain
-    github_svg = ""
     github = content.get("github_link")
     if github:
         label = github.get("label", "View on GitHub")
@@ -554,30 +629,40 @@ def build_svg(content: dict, brain_height: int) -> str:
         gap = 18
         button_h = 68
         button_w = pad + icon_size + gap + int(text_width(label, font_size)) + pad
-        button_x = brain_card_x + brain_card_width - CARD_PADDING - button_w
-        button_y = brain_y_bottom + 150
+        if thumb_name:  # centred under the stack
+            button_x = (CANVAS_WIDTH - button_w) // 2
+            button_y = stack_bottom + 30
+            stack_bottom = button_y + button_h
+        else:  # bottom-right of the brain card, as before
+            button_x = brain_card_x + brain_card_width - CARD_PADDING - button_w
+            button_y = brain_y_bottom + 150
         icon_x = button_x + pad
         icon_y = button_y + (button_h - icon_size) // 2
-        scale = icon_size / 16
-        github_svg = (
+        gh_scale = icon_size / 16
+        center_parts.append(
             f'<a href="{escape(github.get("href", ""))}" target="_blank">'
             f'<rect x="{button_x}" y="{button_y}" width="{button_w}" height="{button_h}" rx="16" fill="#2A2F3D"/>'
-            f'<g transform="translate({icon_x},{icon_y}) scale({scale:.5f})" fill="#FFFFFF"><path d="{OCTOCAT_PATH}"/></g>'
+            f'<g transform="translate({icon_x},{icon_y}) scale({gh_scale:.5f})" fill="#FFFFFF"><path d="{OCTOCAT_PATH}"/></g>'
             f'<text x="{icon_x + icon_size + gap}" y="{button_y + button_h // 2 + 11}" '
             f'font-weight="700" font-size="{font_size}" fill="#FFFFFF">{escape(label)}</text></a>'
         )
+    center_svg = "".join(center_parts)
 
-    # optional headline link, centered under the brain caption (clickable on the
-    # interactive HTML). Activates only when content provides "brain_link".
-    brain_link_svg = ""
-    brain_link = content.get("brain_link")
-    if brain_link:
-        brain_link_svg = (
-            f'<a href="{escape(brain_link["href"])}" target="_blank">'
-            f'<text x="2300" y="{brain_y_bottom + 300}" text-anchor="middle" '
-            f'class="lnk" font-weight="700" font-size="40">'
-            f'{escape(brain_link["text"])}</text></a>'
-        )
+    # bottom row sits below both the columns and the centre (brain) stack.
+    bottom_y = max(balanced_bottom, stack_bottom + 60) + 10
+    # Two passes: measure each bottom card's natural height, then render them all
+    # to the tallest so the row lines up (shorter cards gain white space).
+    _, about_h = layout_card(content["about"], 70, bottom_y, 1380)
+    _, quotes_h = layout_quotes(content["quotes"], 1490, bottom_y, 1480)
+    _, links_h = layout_links(content["links"], 3010, bottom_y, 1520)
+    row_height = max(about_h, quotes_h, links_h)
+    about_svg, _ = layout_card(content["about"], 70, bottom_y, 1380, min_height=row_height)
+    quotes_svg, _ = layout_quotes(content["quotes"], 1490, bottom_y, 1480, min_height=row_height)
+    links_svg, _ = layout_links(content["links"], 3010, bottom_y, 1520, min_height=row_height)
+    canvas_height = bottom_y + row_height + 50
+
+    # brain markers (hover tooltips + optional click-through links)
+    hotspots = render_markers(content, brain_x, brain_y, brain_scale)
 
     head = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 {CANVAS_WIDTH} {canvas_height}" width="{CANVAS_WIDTH}" height="{canvas_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -619,9 +704,7 @@ def build_svg(content: dict, brain_height: int) -> str:
   <g fill="none" stroke="#FF965A" stroke-width="9" stroke-linecap="round">{''.join(f'<path d="{p}"/>' for p in connectors)}</g>
   <rect x="{brain_card_x}" y="{brain_y - 25}" width="{brain_card_width}" height="{brain_card_height}" rx="34" fill="#FFFFFF" filter="url(#shadow)"/>
   <image x="{brain_x}" y="{brain_y}" width="{brain_w}" height="{brain_h}" href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>
-  <text x="2300" y="{brain_y_bottom+92}" text-anchor="middle" class="b" fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>
-  {brain_link_svg}
-  {github_svg}
+  {center_svg}
   {hotspots}
   <g fill="#FF965A" stroke="#FFFFFF" stroke-width="4">{''.join(nodes)}</g>
   {''.join(cards_svg)}
