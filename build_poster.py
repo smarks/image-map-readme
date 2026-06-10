@@ -693,11 +693,13 @@ def build_svg(content: dict, brain_height: int) -> str:
     process = content.get("process")
     if process and process.get("items"):
         items = process["items"]
-        icon_size = 230
-        icon_gap = 110
+        tile = 280            # white framed tile per icon
+        tile_pad = 44         # icon inset inside its tile, so no icon touches the edge
+        icon_disp = tile - 2 * tile_pad
+        tile_gap = 70
         count = len(items)
-        row_w = count * icon_size + (count - 1) * icon_gap
-        proc_h = 54 + 50 + 96 + icon_size + 96
+        row_w = count * tile + (count - 1) * tile_gap
+        proc_h = 54 + 50 + 96 + tile + 96
         proc_top = cols_top + max(0, (right_bottom - cols_top - proc_h) // 2)
         head_y = proc_top + 54
         center_parts.append(
@@ -710,25 +712,27 @@ def build_svg(content: dict, brain_height: int) -> str:
             f'font-size="32" fill="#8A91A3" font-style="italic">hover each icon</text>'
         )
         row_x = left_cx - row_w // 2
-        icons_y = head_y + 96
+        tiles_y = head_y + 96
         for index, item in enumerate(items):
-            ix = row_x + index * (icon_size + icon_gap)
+            tx = row_x + index * (tile + tile_gap)
             encoded = base64.b64encode((PROJECT / item["icon"]).read_bytes()).decode("ascii")
             uri = f"data:image/png;base64,{encoded}"
             label = escape(item.get("label", ""))
             label_svg = (
-                f'<text x="{ix + icon_size // 2}" y="{icons_y + icon_size + 56}" '
+                f'<text x="{tx + tile // 2}" y="{tiles_y + tile + 60}" '
                 f'text-anchor="middle" font-weight="700" font-size="34" '
                 f'fill="#57606A">{label}</text>'
             ) if label else ""
             center_parts.append(
                 f'<g data-tip="{escape(item["tip"])}" style="cursor:help">'
-                f'<image x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size}" '
+                f'<rect x="{tx}" y="{tiles_y}" width="{tile}" height="{tile}" rx="28" '
+                f'fill="#FFFFFF" stroke="#C4CAD4" stroke-width="3" filter="url(#shadow)"/>'
+                f'<image x="{tx + tile_pad}" y="{tiles_y + tile_pad}" '
+                f'width="{icon_disp}" height="{icon_disp}" '
                 f'href="{uri}" xlink:href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
-                f'<rect x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size + 84}" '
-                f'fill="transparent"/>{label_svg}</g>'
+                f'{label_svg}</g>'
             )
-        left_bottom = icons_y + icon_size + 96
+        left_bottom = tiles_y + tile + 96
 
     stack_bottom = max(left_bottom, right_bottom)
     # The "How I built this" GitHub link now lives as a fixed control beneath the
