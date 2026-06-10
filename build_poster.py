@@ -63,18 +63,18 @@ COLUMN_TOP = 400
 COLUMN_GAP = 30
 CARD_PADDING = 46
 ICON_BAR_GAP = 18  # extra inset so the header icon clears the colored accent bar
-BULLET_INDENT = 40
-BULLET_SIZE = 40
-BULLET_LINE_HEIGHT = 68
-BULLET_GAP = 10
-QUOTE_SIZE = 44
-QUOTE_LINE_HEIGHT = 62
+BULLET_INDENT = 50
+BULLET_SIZE = 54
+BULLET_LINE_HEIGHT = 88
+BULLET_GAP = 14
+QUOTE_SIZE = 56
+QUOTE_LINE_HEIGHT = 80
 BUTTON_HEIGHT = 104
 BUTTON_GAP = 16
 
 # Collapsible (disclosure) cards: a collapsed card shrinks to just its header
 # pill; its full slot stays reserved so expanding never overlaps a neighbour.
-COLLAPSED_HEIGHT = 120
+COLLAPSED_HEIGHT = 130
 # Disclosure triangle, drawn in local coords and positioned with translate() so
 # the JS toggle only has to swap the points. Down = expanded, right = collapsed.
 TRI_DOWN = "-18,-11 18,-11 0,15"
@@ -512,34 +512,19 @@ def layout_quotes(
 def layout_links(
     links: dict, x: int, y: int, width: int, min_height: int = 0, column: bool = False
 ) -> tuple[str, int]:
-    """Render the 'find me online' card with clickable buttons.
+    """Render the 'find me online' card as a normal bulleted card.
 
-    ``min_height`` pads the box so it can match the height of the other cards in
-    its row; the extra is white space below the buttons.
+    Each link becomes a bullet whose label is the clickable link, so the card
+    matches the others instead of a stack of boxed buttons.
     """
-    buttons = []
-    cursor = y + 150
-    button_x = x + CARD_PADDING
-    button_width = width - 2 * CARD_PADDING
-    for button in links["buttons"]:
-        buttons.append(
-            f'<a href="{escape(button["href"])}" target="_blank">'
-            f'<rect x="{button_x}" y="{cursor}" width="{button_width}" height="{BUTTON_HEIGHT}" '
-            f'rx="16" fill="#EEF1FB" stroke="#2D6CDF" stroke-width="2"/>'
-            f'<text x="{button_x+32}" y="{cursor+60}" class="btn" fill="#2D6CDF">{escape(button["label"])}</text></a>'
-        )
-        cursor += BUTTON_HEIGHT + BUTTON_GAP
-
-    height = max(cursor - y + 18, min_height)
-    collapsed = bool(links.get("collapsed"))
-    header_card = {"icon": links["icon"], "color": links["color"], "title": links["title"]}
-    body_svg = card_divider(x, y, width) + "".join(buttons)
-    svg = collapsible(
-        x, y, width, height, links["color"],
-        card_header(header_card, x, y), body_svg,
-        collapsed=collapsed, column=column,
-    )
-    return svg, height
+    link_card = {
+        "icon": links["icon"],
+        "color": links["color"],
+        "title": links["title"],
+        "collapsed": links.get("collapsed", False),
+        "bullets": [f'[{button["label"]}]({button["href"]})' for button in links["buttons"]],
+    }
+    return layout_card(link_card, x, y, width, min_height=min_height, column=column)
 
 
 def connector(brain_x: int, card_x: int, card_center_y: int) -> tuple[str, str]:
@@ -600,7 +585,7 @@ def build_svg(content: dict, brain_height: int) -> str:
     # stack as cards fold). Positioned at full heights so the static exports show
     # everything; the interactive JS folds + reflows on load. ──
     LEFT_X = 70
-    SIDEBAR_W = 1240
+    SIDEBAR_W = 1450
     sidebar: list[tuple[str, dict]] = [
         ("card", card) for card in content["left_column"] + content["right_column"]
     ]
@@ -753,11 +738,11 @@ def build_svg(content: dict, brain_height: int) -> str:
       .h1 {{ font-weight: 800; font-size: 132px; }}
       .subt {{ font-weight: 400; font-size: 36px; }}
       .tagt {{ font-weight: 600; font-size: 32px; font-style: italic; }}
-      .cardh {{ font-weight: 800; font-size: 56px; }}
+      .cardh {{ font-weight: 800; font-size: 66px; }}
       .b {{ font-weight: 400; font-size: {BULLET_SIZE}px; }}
       .note {{ font-weight: 400; font-size: {BULLET_SIZE}px; font-style: italic; }}
       .q {{ font-weight: 400; font-size: {QUOTE_SIZE}px; font-style: italic; }}
-      .qa {{ font-weight: 700; font-size: 37px; }}
+      .qa {{ font-weight: 700; font-size: 46px; }}
       .btn {{ font-weight: 700; font-size: 44px; }}
       a tspan.lnk, .lnk {{ fill: #2D6CDF; text-decoration: underline; }}
       a {{ cursor: pointer; }}
@@ -953,8 +938,14 @@ __MOBILE__
   function apply(){ svg.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')'; }
   function fit(){
     var pad=40;
-    var s=Math.min((stage.clientWidth-pad)/W,(stage.clientHeight-pad)/Hfit);
-    scale=s; tx=(stage.clientWidth-W*s)/2; ty=(stage.clientHeight-Hfit*s)/2; apply();
+    // Fit to WIDTH so the cards render at a readable size; the poster is taller
+    // than the screen, so you scroll/pan down. (Whole-canvas fit would shrink the
+    // text right back.) If it happens to fit vertically too, centre it.
+    var s=(stage.clientWidth-pad)/W;
+    scale=s; tx=(stage.clientWidth-W*s)/2;
+    var ch=Hfit*s;
+    ty = ch<=stage.clientHeight ? (stage.clientHeight-ch)/2 : 30;
+    apply();
   }
   function zoomAt(cx,cy,factor){
     var ns=Math.max(0.05,Math.min(8,scale*factor));
