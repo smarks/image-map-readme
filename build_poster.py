@@ -355,7 +355,7 @@ def collapsible(
     accent_side: str = "left",
     bg: str = "#FFFFFF",
     collapsed: bool = False,
-    column: bool = False,
+    column: str = "",
 ) -> str:
     """Wrap a card's header + body so it can collapse to a header-only pill.
 
@@ -371,9 +371,10 @@ def collapsible(
         f'<rect class="ctoggle" x="{x}" y="{y}" width="{width}" '
         f'height="{COLLAPSED_HEIGHT}" fill="#000" fill-opacity="0"/>'
     )
-    # column cards reflow as a stack in the interactive page (data-y = baked top)
+    # column cards reflow as a stack in the interactive page (data-y = baked top,
+    # data-col = which column "L"/"R" so the two columns reflow independently)
     classes = "card colcard" if column else "card"
-    col_attr = f' data-y="{y}"' if column else ""
+    col_attr = f' data-y="{y}" data-col="{column}"' if column else ""
     # accent="" → no stripe (the brain card stands on its border + shadow alone)
     bar = (
         f'<rect class="cbar" x="{bar_x}" y="{y}" width="16" height="{full_height}" rx="8" fill="{accent}"/>'
@@ -397,7 +398,7 @@ def layout_card(
     dark: bool = False,
     min_height: int = 0,
     bulleted: bool = True,
-    column: bool = False,
+    column: str = "",
 ) -> tuple[str, int]:
     """Render a card; return (svg, height).
 
@@ -446,7 +447,7 @@ def layout_card(
 
 
 def layout_quotes(
-    quotes: dict, x: int, y: int, width: int, min_height: int = 0, column: bool = False
+    quotes: dict, x: int, y: int, width: int, min_height: int = 0, column: str = ""
 ) -> tuple[str, int]:
     """Render 'words that resonate' as a warm, literary parchment card.
 
@@ -521,7 +522,7 @@ def layout_quotes(
 
 
 def layout_links(
-    links: dict, x: int, y: int, width: int, min_height: int = 0, column: bool = False
+    links: dict, x: int, y: int, width: int, min_height: int = 0, column: str = ""
 ) -> tuple[str, int]:
     """Render the 'find me online' card as a normal bulleted card.
 
@@ -568,20 +569,29 @@ def render_markers(content: dict, brain_x: float, brain_y: float, scale: float) 
     for marker in markers:
         tooltip = (marker.get("tooltip") or "").strip()
         href = (marker.get("href") or "").strip()
-        # Optional hotspots: an unpopulated box (no tooltip AND no link) renders
-        # nothing at all. Scatter as many placeholder boxes as you like and fill
-        # in only the ones you want — the rest simply don't appear.
-        if not tooltip and not href:
+        image_name = (marker.get("image") or "").strip()
+        # Optional hotspots: an unpopulated box (no tooltip, link, AND image)
+        # renders nothing at all. Scatter as many placeholder boxes as you like
+        # and fill in only the ones you want — the rest simply don't appear.
+        if not tooltip and not href and not image_name:
             continue
         marker_x = brain_x + (marker["x"] - BRAIN_IMAGE_X) * scale
         marker_y = brain_y + (marker["y"] - BRAIN_IMAGE_Y) * scale
         # encode newlines as &#10; so multi-line tooltips survive into the
         # attribute and render as line breaks (the tip uses white-space:pre-line)
         tip_attr = f' data-tip="{escape(tooltip).replace(chr(10), "&#10;")}"' if tooltip else ""
+        # An optional image is base64-embedded so the hover preview travels
+        # inside the HTML (no external file to host), mirroring the brain art
+        # and the Claritas thumbnail. The tooltip JS shows it on hover.
+        img_attr = ""
+        if image_name:
+            image_b64 = base64.b64encode((PROJECT / image_name).read_bytes()).decode("ascii")
+            image_mime = "jpeg" if image_name.lower().endswith((".jpg", ".jpeg")) else "png"
+            img_attr = f' data-img="data:image/{image_mime};base64,{image_b64}"'
         rect = (
             f'<rect class="hot" x="{marker_x:.1f}" y="{marker_y:.1f}" '
             f'width="{marker["w"] * scale:.1f}" height="{marker["h"] * scale:.1f}" '
-            f'rx="16"{tip_attr}/>'
+            f'rx="16"{tip_attr}{img_attr}/>'
         )
         if href:
             parts.append(f'<a href="{escape(href)}" target="_blank">{rect}</a>')
@@ -611,158 +621,156 @@ def build_svg(content: dict, brain_height: int) -> str:
     sidebar_collapsed_bottom = COLUMN_TOP
     for kind, card in sidebar:
         if kind == "endorse":
-            svg, height = layout_card(card, LEFT_X, y, SIDEBAR_W, bulleted=False, column=True)
+            svg, height = layout_card(card, LEFT_X, y, SIDEBAR_W, bulleted=False, column="L")
         elif kind == "quotes":
-            svg, height = layout_quotes(card, LEFT_X, y, SIDEBAR_W, column=True)
+            svg, height = layout_quotes(card, LEFT_X, y, SIDEBAR_W, column="L")
         elif kind == "links":
-            svg, height = layout_links(card, LEFT_X, y, SIDEBAR_W, column=True)
+            svg, height = layout_links(card, LEFT_X, y, SIDEBAR_W, column="L")
         else:
-            svg, height = layout_card(card, LEFT_X, y, SIDEBAR_W, column=True)
+            svg, height = layout_card(card, LEFT_X, y, SIDEBAR_W, column="L")
         cards_svg.append(svg)
         initial = COLLAPSED_HEIGHT if card.get("collapsed") else height
         sidebar_collapsed_bottom += initial + COLUMN_GAP
         y += height + COLUMN_GAP
     sidebar_full_bottom = y
 
-    # ── Right panel: the brain map as one big collapsible card ──
+    # ── Right column: three stacked collapsible cards — brain, process, claritas
+    #    — each expanding/contracting and reflowing independently of the sidebar.
     panel_x = LEFT_X + SIDEBAR_W + 70
     panel_w = CANVAS_WIDTH - panel_x - 70
     panel_cx = panel_x + panel_w // 2
-    brain_x = panel_x + CARD_PADDING
-    brain_w = panel_w - 2 * CARD_PADDING
-    brain_scale = brain_w / BRAIN_IMAGE_WIDTH
-    brain_h = round(brain_height * brain_scale)
-    brain_card_y = COLUMN_TOP
-    brain_collapsed = bool(content.get("brain_collapsed"))
-    img_y = brain_card_y + 140
-    img_bottom = img_y + brain_h
+    inner_x = panel_x + CARD_PADDING
+    inner_w = panel_w - 2 * CARD_PADDING
 
-    center_parts: list[str] = []
-    caption_y = img_bottom + 76
-    center_parts.append(
-        f'<text x="{panel_cx}" y="{caption_y}" text-anchor="middle" class="b" '
+    def right_header(card_y: int, title: str) -> str:
+        return (
+            disclosure_triangle(panel_x + CARD_PADDING + 16, card_y + 58, False)
+            + f'<text x="{panel_x + CARD_PADDING + 60}" y="{card_y + 78}" class="cardh" '
+            f'fill="#1F2433">{escape(title)}</text>'
+        )
+
+    right_y = COLUMN_TOP
+    right_collapsed_bottom = COLUMN_TOP
+
+    # 1) Brain — just the interactive image map and its caption.
+    brain_scale = inner_w / BRAIN_IMAGE_WIDTH
+    brain_h = round(brain_height * brain_scale)
+    img_y = right_y + 140
+    caption_y = img_y + brain_h + 76
+    brain_full_h = caption_y - right_y + 46
+    brain_collapsed = bool(content.get("brain_collapsed", False))
+    brain_body = (
+        card_divider(panel_x, right_y, panel_w)
+        + f'<image x="{inner_x}" y="{img_y}" width="{inner_w}" height="{brain_h}" '
+        f'href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>'
+        + render_markers(content, inner_x, img_y, brain_scale)
+        + f'<text x="{panel_cx}" y="{caption_y}" text-anchor="middle" class="b" '
         f'fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>'
     )
+    cards_svg.append(collapsible(
+        panel_x, right_y, panel_w, brain_full_h, "",
+        right_header(right_y, content.get("brain_title", "My brain — poke around the icons")),
+        brain_body, collapsed=brain_collapsed, column="R",
+    ))
+    right_collapsed_bottom += (COLLAPSED_HEIGHT if brain_collapsed else brain_full_h) + COLUMN_GAP
+    right_y += brain_full_h + COLUMN_GAP
 
-    # ── Below the brain, two columns side by side: the Process card (left) and
-    #    the Claritas deep-dive (right, with its link above the picture). ──
-    gutter = 130
-    col_w = (panel_w - 2 * CARD_PADDING - gutter) // 2
-    left_cx = panel_x + CARD_PADDING + col_w // 2
-    right_cx = panel_x + panel_w - CARD_PADDING - col_w // 2
-    cols_top = caption_y + 96
-    left_bottom = right_bottom = cols_top
-
-    # Right column — Claritas link first, picture beneath it.
-    brain_link = content.get("brain_link")
-    if brain_link:
-        href = escape(brain_link["href"])
-        link_y = cols_top + 40
-        link_lines = wrap_tokens(tokenize(brain_link["text"]), col_w, 40)
-        spans = "".join(
-            f'<text x="{right_cx}" y="{link_y + line_index * 52}" text-anchor="middle" '
-            f'class="lnk" font-weight="700" font-size="40">'
-            f'{escape(" ".join(word for word, _ in line))}</text>'
-            for line_index, line in enumerate(link_lines)
-        )
-        center_parts.append(f'<a href="{href}" target="_blank">{spans}</a>')
-        right_bottom = link_y + (len(link_lines) - 1) * 52
-        thumb_name = brain_link.get("thumbnail")
-        if thumb_name:
-            thumb_b64 = base64.b64encode((PROJECT / thumb_name).read_bytes()).decode("ascii")
-            mime = "jpeg" if thumb_name.lower().endswith((".jpg", ".jpeg")) else "png"
-            with Image.open(PROJECT / thumb_name) as thumb_image:
-                thumb_ratio = thumb_image.height / thumb_image.width
-            thumb_w = min(col_w, 1500)
-            thumb_h = round(thumb_w * thumb_ratio)
-            thumb_x = right_cx - thumb_w // 2
-            thumb_y = right_bottom + 70
-            frame = 12
-            data_uri = f"data:image/{mime};base64,{thumb_b64}"
-            center_parts.append(
-                f'<a href="{href}" target="_blank">'
-                f'<rect x="{thumb_x - frame}" y="{thumb_y - frame}" '
-                f'width="{thumb_w + 2 * frame}" height="{thumb_h + 2 * frame}" rx="22" '
-                f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
-                f'<image x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" '
-                f'href="{data_uri}" xlink:href="{data_uri}" preserveAspectRatio="xMidYMid meet"/></a>'
-            )
-            right_bottom = thumb_y + thumb_h
-
-    # Left column — Process card, vertically centred against the right column.
+    # 2) Process — the three hover tiles.
     process = content.get("process")
     if process and process.get("items"):
         items = process["items"]
-        tile = 280            # white framed tile per icon
-        tile_pad = 44         # icon inset inside its tile, so no icon touches the edge
+        proc_y = right_y
+        proc_collapsed = bool(process.get("collapsed", True))
+        tile = 300
+        tile_pad = 50
         icon_disp = tile - 2 * tile_pad
-        tile_gap = 70
+        tile_gap = 110
         count = len(items)
         row_w = count * tile + (count - 1) * tile_gap
-        proc_h = 54 + 50 + 96 + tile + 96
-        proc_top = cols_top + max(0, (right_bottom - cols_top - proc_h) // 2)
-        head_y = proc_top + 54
-        center_parts.append(
-            f'<text x="{left_cx}" y="{head_y}" text-anchor="middle" '
-            f'font-weight="800" font-size="54" fill="#1F2433">'
-            f'{escape(process.get("title", "Process"))}</text>'
-        )
-        center_parts.append(
-            f'<text x="{left_cx}" y="{head_y + 50}" text-anchor="middle" '
-            f'font-size="32" fill="#8A91A3" font-style="italic">hover each icon</text>'
-        )
-        row_x = left_cx - row_w // 2
-        tiles_y = head_y + 96
+        sub_y = proc_y + 176
+        tiles_y = sub_y + 64
+        proc_full_h = (tiles_y + tile + 86) - proc_y + 30
+        proc_body = [
+            card_divider(panel_x, proc_y, panel_w),
+            f'<text x="{panel_cx}" y="{sub_y}" text-anchor="middle" '
+            f'font-size="34" fill="#8A91A3" font-style="italic">hover each icon for detail</text>',
+        ]
+        row_x = panel_cx - row_w // 2
         for index, item in enumerate(items):
             tx = row_x + index * (tile + tile_gap)
             encoded = base64.b64encode((PROJECT / item["icon"]).read_bytes()).decode("ascii")
             uri = f"data:image/png;base64,{encoded}"
             label = escape(item.get("label", ""))
             label_svg = (
-                f'<text x="{tx + tile // 2}" y="{tiles_y + tile + 60}" '
-                f'text-anchor="middle" font-weight="700" font-size="34" '
-                f'fill="#57606A">{label}</text>'
+                f'<text x="{tx + tile // 2}" y="{tiles_y + tile + 60}" text-anchor="middle" '
+                f'font-weight="700" font-size="36" fill="#57606A">{label}</text>'
             ) if label else ""
-            center_parts.append(
+            proc_body.append(
                 f'<g data-tip="{escape(item["tip"])}" style="cursor:help">'
-                f'<rect x="{tx}" y="{tiles_y}" width="{tile}" height="{tile}" rx="28" '
+                f'<rect x="{tx}" y="{tiles_y}" width="{tile}" height="{tile}" rx="30" '
                 f'fill="#FFFFFF" stroke="#C4CAD4" stroke-width="3" filter="url(#shadow)"/>'
-                f'<image x="{tx + tile_pad}" y="{tiles_y + tile_pad}" '
-                f'width="{icon_disp}" height="{icon_disp}" '
-                f'href="{uri}" xlink:href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
-                f'{label_svg}</g>'
+                f'<image x="{tx + tile_pad}" y="{tiles_y + tile_pad}" width="{icon_disp}" '
+                f'height="{icon_disp}" href="{uri}" xlink:href="{uri}" '
+                f'preserveAspectRatio="xMidYMid meet"/>{label_svg}</g>'
             )
-        left_bottom = tiles_y + tile + 96
+        cards_svg.append(collapsible(
+            panel_x, proc_y, panel_w, proc_full_h, "",
+            right_header(proc_y, process.get("title", "Process")),
+            "".join(proc_body), collapsed=proc_collapsed, column="R",
+        ))
+        right_collapsed_bottom += (COLLAPSED_HEIGHT if proc_collapsed else proc_full_h) + COLUMN_GAP
+        right_y += proc_full_h + COLUMN_GAP
 
-    stack_bottom = max(left_bottom, right_bottom)
-    # The "How I built this" GitHub link now lives as a fixed control beneath the
-    # top-right instructions (added in build_html), not in the brain card stack.
+    # 3) Claritas — the pipeline diagram and design-doc workflows, inline.
+    claritas = content.get("claritas")
+    if claritas and claritas.get("images"):
+        clar_y = right_y
+        clar_collapsed = bool(claritas.get("collapsed", True))
+        clar_body = [card_divider(panel_x, clar_y, panel_w)]
+        cursor = clar_y + 172
+        if claritas.get("caption"):
+            clar_body.append(
+                f'<text x="{panel_cx}" y="{cursor}" text-anchor="middle" '
+                f'font-size="34" fill="#8A91A3" font-style="italic">'
+                f'{escape(claritas["caption"])}</text>'
+            )
+            cursor += 92
+        for image in claritas["images"]:
+            with Image.open(PROJECT / image["file"]) as picture:
+                native_w, native_h = picture.size
+            disp_w = min(native_w, inner_w - 80)
+            disp_h = round(native_h * disp_w / native_w)
+            image_x = panel_cx - disp_w // 2
+            if image.get("caption"):
+                clar_body.append(
+                    f'<text x="{panel_cx}" y="{cursor}" text-anchor="middle" '
+                    f'font-weight="700" font-size="38" fill="#403B33">'
+                    f'{escape(image["caption"])}</text>'
+                )
+                cursor += 58
+            encoded = base64.b64encode((PROJECT / image["file"]).read_bytes()).decode("ascii")
+            mime = "jpeg" if image["file"].lower().endswith((".jpg", ".jpeg")) else "png"
+            uri = f"data:image/{mime};base64,{encoded}"
+            frame = 12
+            clar_body.append(
+                f'<rect x="{image_x - frame}" y="{cursor - frame}" '
+                f'width="{disp_w + 2 * frame}" height="{disp_h + 2 * frame}" rx="20" '
+                f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
+                f'<image x="{image_x}" y="{cursor}" width="{disp_w}" height="{disp_h}" '
+                f'href="{uri}" xlink:href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
+            )
+            cursor += disp_h + 96
+        clar_full_h = cursor - clar_y + 20
+        cards_svg.append(collapsible(
+            panel_x, clar_y, panel_w, clar_full_h, "",
+            right_header(clar_y, claritas.get("title", "Claritas genomic pipeline")),
+            "".join(clar_body), collapsed=clar_collapsed, column="R",
+        ))
+        right_collapsed_bottom += (COLLAPSED_HEIGHT if clar_collapsed else clar_full_h) + COLUMN_GAP
+        right_y += clar_full_h + COLUMN_GAP
 
-    brain_full_h = stack_bottom - brain_card_y + 50
-    hotspots = render_markers(content, brain_x, img_y, brain_scale)
-    brain_title = content.get("brain_title", "My brain — poke around the icons")
-    brain_header = (
-        disclosure_triangle(panel_x + CARD_PADDING + 16, brain_card_y + 58, False)
-        + f'<text x="{panel_x + CARD_PADDING + 60}" y="{brain_card_y + 78}" class="cardh" '
-        f'fill="#1F2433">{escape(brain_title)}</text>'
-    )
-    brain_body = (
-        card_divider(panel_x, brain_card_y, panel_w)
-        + f'<image x="{brain_x}" y="{img_y}" width="{brain_w}" height="{brain_h}" '
-        f'href="{WEB_BRAIN.name}" xlink:href="{WEB_BRAIN.name}" preserveAspectRatio="xMidYMid meet"/>'
-        + hotspots
-        + "".join(center_parts)
-    )
-    cards_svg.append(
-        collapsible(
-            panel_x, brain_card_y, panel_w, brain_full_h, "",
-            brain_header, brain_body, collapsed=brain_collapsed,
-        )
-    )
-
-    brain_initial_bottom = brain_card_y + (COLLAPSED_HEIGHT if brain_collapsed else brain_full_h)
-    canvas_height = max(sidebar_full_bottom, brain_card_y + brain_full_h) + 50
-    fit_height = max(sidebar_collapsed_bottom, brain_initial_bottom) + 50
+    canvas_height = max(sidebar_full_bottom, right_y) + 50
+    fit_height = max(sidebar_collapsed_bottom, right_collapsed_bottom) + 50
 
     head = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 {CANVAS_WIDTH} {canvas_height}" width="{CANVAS_WIDTH}" height="{canvas_height}" data-fit-h="{fit_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -944,6 +952,7 @@ __FONTFACES__
   #ghbtn:hover{background:#1F2433}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
   #tip.show{opacity:1}
+  #tip img{display:block;max-width:260px;max-height:260px;border-radius:6px;margin-bottom:6px}
   #mobile{display:none;max-width:680px;margin:0 auto;padding:26px 18px 56px;color:#2A2F3D;text-align:left}
   #mobile h1{font-size:2rem;font-weight:800;text-align:center;color:#1F2433;margin:6px 0 4px}
   #mobile .sub{text-align:center;color:#4A5163;font-size:1rem;margin:0 0 24px;line-height:1.5}
@@ -1017,15 +1026,18 @@ __MOBILE__
   // ── Collapsible cards: toggle a card between its full slot and a header pill.
   var CH=__COLLAPSED_HEIGHT__, TRI_DOWN='__TRI_DOWN__', TRI_RIGHT='__TRI_RIGHT__';
   var COLTOP=__COLUMN_TOP__, COLGAP=__COLUMN_GAP__;
-  // The left sidebar (.colcard) reflows as a tight stack: each card is shifted by
-  // (running y − its baked y) so folding one slides the rest up.
+  // Both columns (.colcard data-col="L"/"R") reflow as tight stacks: each card is
+  // shifted by (running y − its baked y) so folding one slides the rest up. The
+  // two columns are independent, so collapsing a right card never moves the left.
   function reflow(){
-    var cols=svg.querySelectorAll('.colcard'), y=COLTOP;
-    for(var i=0;i<cols.length;i++){
-      var c=cols[i];
-      c.setAttribute('transform','translate(0,'+(y-(+c.getAttribute('data-y')))+')');
-      y+=(c.classList.contains('collapsed')?CH:+c.getAttribute('data-eh'))+COLGAP;
-    }
+    ['L','R'].forEach(function(col){
+      var cards=svg.querySelectorAll('.colcard[data-col="'+col+'"]'), y=COLTOP;
+      for(var i=0;i<cards.length;i++){
+        var c=cards[i];
+        c.setAttribute('transform','translate(0,'+(y-(+c.getAttribute('data-y')))+')');
+        y+=(c.classList.contains('collapsed')?CH:+c.getAttribute('data-eh'))+COLGAP;
+      }
+    });
   }
   function toggleCard(card){
     if(!card)return;
