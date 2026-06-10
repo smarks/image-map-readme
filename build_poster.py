@@ -63,18 +63,18 @@ COLUMN_TOP = 400
 COLUMN_GAP = 30
 CARD_PADDING = 46
 ICON_BAR_GAP = 18  # extra inset so the header icon clears the colored accent bar
-BULLET_INDENT = 34
-BULLET_SIZE = 31
-BULLET_LINE_HEIGHT = 54
-BULLET_GAP = 8
-QUOTE_SIZE = 35
-QUOTE_LINE_HEIGHT = 48
-BUTTON_HEIGHT = 92
-BUTTON_GAP = 14
+BULLET_INDENT = 40
+BULLET_SIZE = 40
+BULLET_LINE_HEIGHT = 68
+BULLET_GAP = 10
+QUOTE_SIZE = 44
+QUOTE_LINE_HEIGHT = 62
+BUTTON_HEIGHT = 104
+BUTTON_GAP = 16
 
 # Collapsible (disclosure) cards: a collapsed card shrinks to just its header
 # pill; its full slot stays reserved so expanding never overlaps a neighbour.
-COLLAPSED_HEIGHT = 104
+COLLAPSED_HEIGHT = 120
 # Disclosure triangle, drawn in local coords and positioned with translate() so
 # the JS toggle only has to swap the points. Down = expanded, right = collapsed.
 TRI_DOWN = "-10,-6 10,-6 0,8"
@@ -374,11 +374,16 @@ def collapsible(
     # column cards reflow as a stack in the interactive page (data-y = baked top)
     classes = "card colcard" if column else "card"
     col_attr = f' data-y="{y}"' if column else ""
+    # accent="" → no stripe (the brain card stands on its border + shadow alone)
+    bar = (
+        f'<rect class="cbar" x="{bar_x}" y="{y}" width="16" height="{full_height}" rx="8" fill="{accent}"/>'
+        if accent else ""
+    )
     return (
         f'<g class="{classes}" data-eh="{full_height}"{col_attr}{start_collapsed}>'
         f'<rect class="cbg" x="{x}" y="{y}" width="{width}" height="{full_height}" rx="26" '
         f'fill="{bg}" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
-        f'<rect class="cbar" x="{bar_x}" y="{y}" width="16" height="{full_height}" rx="8" fill="{accent}"/>'
+        f'{bar}'
         f'<g class="cbody" display="inline">{body}</g>'
         f"{header}{toggle}</g>"
     )
@@ -532,7 +537,7 @@ def layout_links(
     svg = collapsible(
         x, y, width, height, links["color"],
         card_header(header_card, x, y), body_svg,
-        accent_side="right", collapsed=collapsed, column=column,
+        collapsed=collapsed, column=column,
     )
     return svg, height
 
@@ -595,7 +600,7 @@ def build_svg(content: dict, brain_height: int) -> str:
     # stack as cards fold). Positioned at full heights so the static exports show
     # everything; the interactive JS folds + reflows on load. ──
     LEFT_X = 70
-    SIDEBAR_W = 1000
+    SIDEBAR_W = 1240
     sidebar: list[tuple[str, dict]] = [
         ("card", card) for card in content["left_column"] + content["right_column"]
     ]
@@ -719,7 +724,7 @@ def build_svg(content: dict, brain_height: int) -> str:
     )
     cards_svg.append(
         collapsible(
-            panel_x, brain_card_y, panel_w, brain_full_h, "#2D6CDF",
+            panel_x, brain_card_y, panel_w, brain_full_h, "",
             brain_header, brain_body, collapsed=brain_collapsed,
         )
     )
@@ -748,12 +753,12 @@ def build_svg(content: dict, brain_height: int) -> str:
       .h1 {{ font-weight: 800; font-size: 132px; }}
       .subt {{ font-weight: 400; font-size: 36px; }}
       .tagt {{ font-weight: 600; font-size: 32px; font-style: italic; }}
-      .cardh {{ font-weight: 800; font-size: 48px; }}
+      .cardh {{ font-weight: 800; font-size: 56px; }}
       .b {{ font-weight: 400; font-size: {BULLET_SIZE}px; }}
       .note {{ font-weight: 400; font-size: {BULLET_SIZE}px; font-style: italic; }}
       .q {{ font-weight: 400; font-size: {QUOTE_SIZE}px; font-style: italic; }}
-      .qa {{ font-weight: 700; font-size: 29px; }}
-      .btn {{ font-weight: 700; font-size: 36px; }}
+      .qa {{ font-weight: 700; font-size: 37px; }}
+      .btn {{ font-weight: 700; font-size: 44px; }}
       a tspan.lnk, .lnk {{ fill: #2D6CDF; text-decoration: underline; }}
       a {{ cursor: pointer; }}
       .hot {{ fill: #2D6CDF; fill-opacity: 0; stroke: #2D6CDF; stroke-width: 0; transition: fill-opacity .15s; }}
