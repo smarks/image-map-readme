@@ -72,6 +72,14 @@ QUOTE_LINE_HEIGHT = 48
 BUTTON_HEIGHT = 92
 BUTTON_GAP = 14
 
+# Collapsible (disclosure) cards: a collapsed card shrinks to just its header
+# pill; its full slot stays reserved so expanding never overlaps a neighbour.
+COLLAPSED_HEIGHT = 104
+# Disclosure triangle, drawn in local coords and positioned with translate() so
+# the JS toggle only has to swap the points. Down = expanded, right = collapsed.
+TRI_DOWN = "-10,-6 10,-6 0,8"
+TRI_RIGHT = "-6,-10 -6,10 8,0"
+
 # GitHub "Octocat" mark, drawn on a 16×16 grid (scaled where used).
 OCTOCAT_PATH = (
     "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 "
@@ -309,15 +317,66 @@ def icon(name: str, cx: int, cy: int, color: str) -> str:
 
 
 # ── Card renderers ──────────────────────────────────────────────────────────
-def card_header(card: dict, x: int, y: int, width: int) -> str:
-    """Render a card's icon, title, and divider."""
-    # Inset the icon past the accent bar so the two aren't crushed together.
-    cx, cy = x + CARD_PADDING + ICON_BAR_GAP, y + 62
+def disclosure_triangle(cx: int, cy: int, collapsed: bool) -> str:
+    """A small disclosure triangle (▼ open / ► closed) the JS can flip."""
+    points = TRI_RIGHT if collapsed else TRI_DOWN
+    return f'<polygon class="ctri" points="{points}" transform="translate({cx},{cy})" fill="#1F2433"/>'
+
+
+def card_divider(x: int, y: int, width: int) -> str:
+    """The header rule under a card title (lives in the collapsible body)."""
+    return (
+        f'<line x1="{x+CARD_PADDING}" y1="{y+112}" x2="{x+width-CARD_PADDING}" y2="{y+112}" '
+        f'stroke="#E2E5EE" stroke-width="3"/>'
+    )
+
+
+def card_header(card: dict, x: int, y: int, collapsed: bool = False) -> str:
+    """Render a card's disclosure triangle, icon, and title (no divider)."""
+    # Triangle at the far left, then the icon inset past the accent bar, then title.
+    tri_cx, tri_cy = x + CARD_PADDING + ICON_BAR_GAP + 4, y + 58
+    cx, cy = x + CARD_PADDING + ICON_BAR_GAP + 46, y + 62
     title_x = cx + 52
     return (
-        icon(card["icon"], cx, cy, card["color"])
+        disclosure_triangle(tri_cx, tri_cy, collapsed)
+        + icon(card["icon"], cx, cy, card["color"])
         + f'<text x="{title_x}" y="{y+78}" class="cardh" fill="#1F2433">{escape(card["title"])}</text>'
-        + f'<line x1="{x+CARD_PADDING}" y1="{y+112}" x2="{x+width-CARD_PADDING}" y2="{y+112}" stroke="#E2E5EE" stroke-width="3"/>'
+    )
+
+
+def collapsible(
+    x: int,
+    y: int,
+    width: int,
+    full_height: int,
+    accent: str,
+    header: str,
+    body: str,
+    accent_side: str = "left",
+    bg: str = "#FFFFFF",
+    collapsed: bool = False,
+) -> str:
+    """Wrap a card's header + body so it can collapse to a header-only pill.
+
+    Always rendered fully expanded so the static SVG/PNG/PDF exports show every
+    card's content. ``collapsed`` only tags the card with ``data-start-collapsed``
+    so the interactive page's JS can fold it on load; the slot reserves
+    ``full_height`` regardless, so an expanding card never overlaps a neighbour.
+    """
+    bar_x = x if accent_side == "left" else x + width - 16
+    start_collapsed = ' data-start-collapsed="1"' if collapsed else ""
+    # transparent hit target over just the header row
+    toggle = (
+        f'<rect class="ctoggle" x="{x}" y="{y}" width="{width}" '
+        f'height="{COLLAPSED_HEIGHT}" fill="#000" fill-opacity="0"/>'
+    )
+    return (
+        f'<g class="card" data-eh="{full_height}"{start_collapsed}>'
+        f'<rect class="cbg" x="{x}" y="{y}" width="{width}" height="{full_height}" rx="26" '
+        f'fill="{bg}" filter="url(#shadow)"/>'
+        f'<rect class="cbar" x="{bar_x}" y="{y}" width="16" height="{full_height}" rx="8" fill="{accent}"/>'
+        f'<g class="cbody" display="inline">{body}</g>'
+        f"{header}{toggle}</g>"
     )
 
 
@@ -367,12 +426,12 @@ def layout_card(
             cursor += BULLET_LINE_HEIGHT
 
     height = max(cursor - y + 26, min_height)
-    accent = card["color"]
-    rects = (
-        f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" fill="#FFFFFF" filter="url(#shadow)"/>'
-        f'<rect x="{x}" y="{y}" width="16" height="{height}" rx="8" fill="{accent}"/>'
+    collapsed = bool(card.get("collapsed"))
+    body_svg = card_divider(x, y, width) + "".join(body)
+    svg = collapsible(
+        x, y, width, height, card["color"],
+        card_header(card, x, y), body_svg, collapsed=collapsed,
     )
-    svg = f'<g>{rects}{card_header(card, x, y, width)}{"".join(body)}</g>'
     return svg, height
 
 
@@ -420,19 +479,21 @@ def layout_quotes(
         cursor += 24
 
     height = max(cursor - y + 24, min_height)
+    collapsed = bool(quotes.get("collapsed"))
     header = (
-        f'<text x="{x+CARD_PADDING}" y="{y+106}" font-weight="800" font-size="120" '
+        disclosure_triangle(x + CARD_PADDING + 12, y + 56, False)
+        + f'<text x="{x+CARD_PADDING+44}" y="{y+106}" font-weight="800" font-size="120" '
         f'fill="#E0B86A">&#8220;</text>'
-        f'<text x="{x+CARD_PADDING+136}" y="{y+82}" class="cardh" fill="#2A2620">'
+        f'<text x="{x+CARD_PADDING+170}" y="{y+82}" class="cardh" fill="#2A2620">'
         f'{escape(quotes["title"])}</text>'
+    )
+    divider = (
         f'<line x1="{x+CARD_PADDING}" y1="{y+118}" x2="{x+width-CARD_PADDING}" y2="{y+118}" '
         f'stroke="url(#bar)" stroke-width="4"/>'
     )
-    svg = (
-        f'<g><rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" '
-        f'fill="{background}" filter="url(#shadow)"/>'
-        f'<rect x="{x}" y="{y}" width="16" height="{height}" rx="8" fill="#D9A441"/>'
-        f"{header}{''.join(rules)}{''.join(body)}</g>"
+    body_svg = divider + "".join(rules) + "".join(body)
+    svg = collapsible(
+        x, y, width, height, "#D9A441", header, body_svg, bg=background, collapsed=collapsed,
     )
     return svg, height
 
@@ -459,11 +520,13 @@ def layout_links(
         cursor += BUTTON_HEIGHT + BUTTON_GAP
 
     height = max(cursor - y + 18, min_height)
+    collapsed = bool(links.get("collapsed"))
     header_card = {"icon": links["icon"], "color": links["color"], "title": links["title"]}
-    svg = (
-        f'<g><rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" fill="#FFFFFF" filter="url(#shadow)"/>'
-        f'<rect x="{x+width-16}" y="{y}" width="16" height="{height}" rx="8" fill="{links["color"]}"/>'
-        f"{card_header(header_card, x, y, width)}{''.join(buttons)}</g>"
+    body_svg = card_divider(x, y, width) + "".join(buttons)
+    svg = collapsible(
+        x, y, width, height, links["color"],
+        card_header(header_card, x, y), body_svg,
+        accent_side="right", collapsed=collapsed,
     )
     return svg, height
 
@@ -679,12 +742,22 @@ def build_svg(content: dict, brain_height: int) -> str:
     quotes_svg, _ = layout_quotes(content["quotes"], 1490, bottom_y, 1480, min_height=row_height)
     links_svg, _ = layout_links(content["links"], 3010, bottom_y, 1520, min_height=row_height)
     canvas_height = bottom_y + row_height + 50
+    # Height the interactive page fits to: with the bottom row's start-collapsed
+    # cards folded, the canvas can sit tighter (no dead space below the pills).
+    # The full canvas_height stays the viewBox, so expanding a card never clips
+    # and the static exports show everything.
+    bottom_initial = max(
+        COLLAPSED_HEIGHT if bottom_left.get("collapsed") else about_h,
+        COLLAPSED_HEIGHT if content["quotes"].get("collapsed") else quotes_h,
+        COLLAPSED_HEIGHT if content["links"].get("collapsed") else links_h,
+    )
+    fit_height = bottom_y + bottom_initial + 50
 
     # brain markers (hover tooltips + optional click-through links)
     hotspots = render_markers(content, brain_x, brain_y, brain_scale)
 
     head = f"""<?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 {CANVAS_WIDTH} {canvas_height}" width="{CANVAS_WIDTH}" height="{canvas_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg viewBox="0 0 {CANVAS_WIDTH} {canvas_height}" width="{CANVAS_WIDTH}" height="{canvas_height}" data-fit-h="{fit_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
     <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#0F5E86"/><stop offset="0.5" stop-color="#6A4FD0"/><stop offset="1" stop-color="#F2547D"/>
@@ -826,6 +899,9 @@ def build_html(svg_text: str, content: dict) -> str:
     inline = embed_brain(svg_text).replace("<svg ", '<svg id="poster" ', 1)
     return (
         _HTML_SHELL.replace("__FONTFACES__", embedded_font_faces())
+        .replace("__COLLAPSED_HEIGHT__", str(COLLAPSED_HEIGHT))
+        .replace("__TRI_DOWN__", TRI_DOWN)
+        .replace("__TRI_RIGHT__", TRI_RIGHT)
         .replace("__SVG__", inline)
         .replace("__MOBILE__", render_mobile(content))
     )
@@ -844,6 +920,7 @@ __FONTFACES__
   #stage.grabbing{cursor:grabbing}
   #poster{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;user-select:none}
   #poster a{cursor:pointer}
+  #poster .ctoggle{cursor:pointer}
   #hud{position:fixed;left:18px;bottom:22px;display:flex;gap:8px;z-index:30}
   #hud button{font:600 17px/1 'Helvetica Neue',Arial;background:#1F2433;color:#fff;border:0;border-radius:10px;padding:12px 18px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#2D6CDF}
@@ -888,7 +965,7 @@ __SVG__
   <button type="button" id="zout">－ Zoom out</button>
   <button type="button" id="fit">⤢ Fit</button>
 </div>
-<div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; hover or tap the brain icons for notes &middot; click links to open them.</div>
+<div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; click a card&rsquo;s header to expand or collapse it &middot; hover the brain icons for notes.</div>
 <div id="tip"></div>
 __MOBILE__
 <script>
@@ -897,19 +974,33 @@ __MOBILE__
   var svg=document.getElementById('poster');
   var vb=svg.getAttribute('viewBox').split(/\\s+/).map(Number);
   var W=vb[2], H=vb[3];
+  // Fit to the (tighter) collapsed height so folded cards leave no dead space;
+  // the SVG itself stays full height, so an expanded card is never clipped.
+  var Hfit=+svg.getAttribute('data-fit-h')||H;
   svg.style.width=W+'px'; svg.style.height=H+'px';
   var scale=1, tx=0, ty=0;
   function apply(){ svg.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')'; }
   function fit(){
     var pad=40;
-    var s=Math.min((stage.clientWidth-pad)/W,(stage.clientHeight-pad)/H);
-    scale=s; tx=(stage.clientWidth-W*s)/2; ty=(stage.clientHeight-H*s)/2; apply();
+    var s=Math.min((stage.clientWidth-pad)/W,(stage.clientHeight-pad)/Hfit);
+    scale=s; tx=(stage.clientWidth-W*s)/2; ty=(stage.clientHeight-Hfit*s)/2; apply();
   }
   function zoomAt(cx,cy,factor){
     var ns=Math.max(0.05,Math.min(8,scale*factor));
     tx=cx-(cx-tx)*(ns/scale); ty=cy-(cy-ty)*(ns/scale); scale=ns; apply();
   }
-  var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null;
+  var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null,toggleTarget=null;
+  // ── Collapsible cards: toggle a card between its full slot and a header pill.
+  var CH=__COLLAPSED_HEIGHT__, TRI_DOWN='__TRI_DOWN__', TRI_RIGHT='__TRI_RIGHT__';
+  function toggleCard(card){
+    if(!card)return;
+    var collapsed=card.classList.toggle('collapsed');
+    var h=collapsed?CH:card.getAttribute('data-eh');
+    var rects=card.querySelectorAll('.cbg,.cbar');
+    for(var i=0;i<rects.length;i++) rects[i].setAttribute('height',h);
+    var body=card.querySelector('.cbody'); if(body) body.setAttribute('display',collapsed?'none':'inline');
+    var tri=card.querySelector('.ctri'); if(tri) tri.setAttribute('points',collapsed?TRI_RIGHT:TRI_DOWN);
+  }
   // Active pointers, keyed by id. A mouse is always a single pointer, so it never
   // enters the two-finger pinch path below — the desktop drag/click behaviour is
   // unchanged. A second touch starts a pinch; a single touch pans exactly like a
@@ -929,6 +1020,7 @@ __MOBILE__
     }
     down=true;moved=false;sx=e.clientX;sy=e.clientY;otx=tx;oty=ty;
     target=e.target.closest('a');
+    toggleTarget=e.target.closest('.ctoggle');
     hideTip();
     stage.classList.add('grabbing');
   });
@@ -964,6 +1056,8 @@ __MOBILE__
       return;
     }
     down=false; stage.classList.remove('grabbing');
+    if(toggleTarget && !moved){ toggleCard(toggleTarget.closest('.card')); toggleTarget=null; target=null; return; }
+    toggleTarget=null;
     if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href){ window.open(href,'_blank'); } target=null; return; }
     target=null;
     if(e.pointerType!=='mouse' && !moved){   // touch tap on empty art toggles marker tooltips
@@ -1027,6 +1121,10 @@ __MOBILE__
   document.getElementById('fit').onclick=fit;
   window.addEventListener('resize',fit);
   window.addEventListener('orientationchange',fit);   // re-center when an iPad rotates
+  // Fold the cards that should start collapsed (interactive page only; the static
+  // SVG/PNG/PDF stay fully expanded).
+  var startCollapsed=svg.querySelectorAll('.card[data-start-collapsed]');
+  for(var ci=0;ci<startCollapsed.length;ci++) toggleCard(startCollapsed[ci]);
   fit();
 })();
 </script>
