@@ -643,109 +643,96 @@ def build_svg(content: dict, brain_height: int) -> str:
         f'<text x="{panel_cx}" y="{caption_y}" text-anchor="middle" class="b" '
         f'fill="#8A91A3" font-style="italic">{escape(content["brain_caption"])}</text>'
     )
-    stack_bottom = caption_y
-    brain_link = content.get("brain_link")
-    thumb_name = brain_link.get("thumbnail") if brain_link else None
-    if thumb_name and brain_link:
-        thumb_b64 = base64.b64encode((PROJECT / thumb_name).read_bytes()).decode("ascii")
-        mime = "jpeg" if thumb_name.lower().endswith((".jpg", ".jpeg")) else "png"
-        with Image.open(PROJECT / thumb_name) as thumb_image:
-            thumb_ratio = thumb_image.height / thumb_image.width
-        thumb_w = min(1500, panel_w - 2 * CARD_PADDING - 200)
-        thumb_h = round(thumb_w * thumb_ratio)
-        thumb_x = panel_cx - thumb_w // 2
-        thumb_y = caption_y + 44
-        frame = 12
-        href = escape(brain_link["href"])
-        data_uri = f"data:image/{mime};base64,{thumb_b64}"
-        center_parts.append(
-            f'<a href="{href}" target="_blank">'
-            f'<rect x="{thumb_x - frame}" y="{thumb_y - frame}" '
-            f'width="{thumb_w + 2 * frame}" height="{thumb_h + 2 * frame}" rx="22" '
-            f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
-            f'<image x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" '
-            f'href="{data_uri}" xlink:href="{data_uri}" preserveAspectRatio="xMidYMid meet"/></a>'
-        )
-        link_y = thumb_y + thumb_h + 72
-        center_parts.append(
-            f'<a href="{href}" target="_blank">'
-            f'<text x="{panel_cx}" y="{link_y}" text-anchor="middle" class="lnk" '
-            f'font-weight="700" font-size="40">{escape(brain_link["text"])}</text></a>'
-        )
-        stack_bottom = link_y + 16
-    elif brain_link:
-        link_y = img_bottom + 160
-        center_parts.append(
-            f'<a href="{escape(brain_link["href"])}" target="_blank">'
-            f'<text x="{panel_cx}" y="{link_y}" text-anchor="middle" class="lnk" '
-            f'font-weight="700" font-size="40">{escape(brain_link["text"])}</text></a>'
-        )
-        stack_bottom = link_y
 
-    # ── "Process" card: three icons that reveal pop-up text on hover ──
+    # ── Below the brain, two columns side by side: the Process card (left) and
+    #    the Claritas deep-dive (right, with its link above the picture). ──
+    gutter = 130
+    col_w = (panel_w - 2 * CARD_PADDING - gutter) // 2
+    left_cx = panel_x + CARD_PADDING + col_w // 2
+    right_cx = panel_x + panel_w - CARD_PADDING - col_w // 2
+    cols_top = caption_y + 96
+    left_bottom = right_bottom = cols_top
+
+    # Right column — Claritas link first, picture beneath it.
+    brain_link = content.get("brain_link")
+    if brain_link:
+        href = escape(brain_link["href"])
+        link_y = cols_top + 40
+        link_lines = wrap_tokens(tokenize(brain_link["text"]), col_w, 40)
+        spans = "".join(
+            f'<text x="{right_cx}" y="{link_y + line_index * 52}" text-anchor="middle" '
+            f'class="lnk" font-weight="700" font-size="40">'
+            f'{escape(" ".join(word for word, _ in line))}</text>'
+            for line_index, line in enumerate(link_lines)
+        )
+        center_parts.append(f'<a href="{href}" target="_blank">{spans}</a>')
+        right_bottom = link_y + (len(link_lines) - 1) * 52
+        thumb_name = brain_link.get("thumbnail")
+        if thumb_name:
+            thumb_b64 = base64.b64encode((PROJECT / thumb_name).read_bytes()).decode("ascii")
+            mime = "jpeg" if thumb_name.lower().endswith((".jpg", ".jpeg")) else "png"
+            with Image.open(PROJECT / thumb_name) as thumb_image:
+                thumb_ratio = thumb_image.height / thumb_image.width
+            thumb_w = min(col_w, 1500)
+            thumb_h = round(thumb_w * thumb_ratio)
+            thumb_x = right_cx - thumb_w // 2
+            thumb_y = right_bottom + 70
+            frame = 12
+            data_uri = f"data:image/{mime};base64,{thumb_b64}"
+            center_parts.append(
+                f'<a href="{href}" target="_blank">'
+                f'<rect x="{thumb_x - frame}" y="{thumb_y - frame}" '
+                f'width="{thumb_w + 2 * frame}" height="{thumb_h + 2 * frame}" rx="22" '
+                f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
+                f'<image x="{thumb_x}" y="{thumb_y}" width="{thumb_w}" height="{thumb_h}" '
+                f'href="{data_uri}" xlink:href="{data_uri}" preserveAspectRatio="xMidYMid meet"/></a>'
+            )
+            right_bottom = thumb_y + thumb_h
+
+    # Left column — Process card, vertically centred against the right column.
     process = content.get("process")
     if process and process.get("items"):
         items = process["items"]
-        div_y = stack_bottom + 80
+        icon_size = 230
+        icon_gap = 110
+        count = len(items)
+        row_w = count * icon_size + (count - 1) * icon_gap
+        proc_h = 54 + 50 + 96 + icon_size + 96
+        proc_top = cols_top + max(0, (right_bottom - cols_top - proc_h) // 2)
+        head_y = proc_top + 54
         center_parts.append(
-            f'<rect x="{panel_cx - 720}" y="{div_y}" width="1440" height="2" fill="#E4E7EC"/>'
-        )
-        head_y = div_y + 86
-        center_parts.append(
-            f'<text x="{panel_cx}" y="{head_y}" text-anchor="middle" '
+            f'<text x="{left_cx}" y="{head_y}" text-anchor="middle" '
             f'font-weight="800" font-size="54" fill="#1F2433">'
             f'{escape(process.get("title", "Process"))}</text>'
         )
         center_parts.append(
-            f'<text x="{panel_cx}" y="{head_y + 50}" text-anchor="middle" '
+            f'<text x="{left_cx}" y="{head_y + 50}" text-anchor="middle" '
             f'font-size="32" fill="#8A91A3" font-style="italic">hover each icon</text>'
         )
-        icon_size = 230
-        col_gap = 150
-        count = len(items)
-        row_x = panel_cx - (count * icon_size + (count - 1) * col_gap) // 2
-        icons_y = head_y + 100
+        row_x = left_cx - row_w // 2
+        icons_y = head_y + 96
         for index, item in enumerate(items):
-            ix = row_x + index * (icon_size + col_gap)
+            ix = row_x + index * (icon_size + icon_gap)
             encoded = base64.b64encode((PROJECT / item["icon"]).read_bytes()).decode("ascii")
             uri = f"data:image/png;base64,{encoded}"
             label = escape(item.get("label", ""))
             label_svg = (
-                f'<text x="{ix + icon_size // 2}" y="{icons_y + icon_size + 46}" '
-                f'text-anchor="middle" font-weight="700" font-size="36" '
+                f'<text x="{ix + icon_size // 2}" y="{icons_y + icon_size + 56}" '
+                f'text-anchor="middle" font-weight="700" font-size="34" '
                 f'fill="#57606A">{label}</text>'
             ) if label else ""
             center_parts.append(
                 f'<g data-tip="{escape(item["tip"])}" style="cursor:help">'
                 f'<image x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size}" '
                 f'href="{uri}" xlink:href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
-                f'<rect x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size + 60}" '
+                f'<rect x="{ix}" y="{icons_y}" width="{icon_size}" height="{icon_size + 84}" '
                 f'fill="transparent"/>{label_svg}</g>'
             )
-        stack_bottom = icons_y + icon_size + 80
+        left_bottom = icons_y + icon_size + 96
 
-    github = content.get("github_link")
-    if github:
-        label = github.get("label", "View on GitHub")
-        font_size = 32
-        icon_size = 36
-        pad = 28
-        gap = 18
-        button_h = 68
-        button_w = pad + icon_size + gap + int(text_width(label, font_size)) + pad
-        button_x = panel_cx - button_w // 2
-        button_y = stack_bottom + 34
-        stack_bottom = button_y + button_h
-        icon_x = button_x + pad
-        icon_y = button_y + (button_h - icon_size) // 2
-        gh_scale = icon_size / 16
-        center_parts.append(
-            f'<a href="{escape(github.get("href", ""))}" target="_blank">'
-            f'<rect x="{button_x}" y="{button_y}" width="{button_w}" height="{button_h}" rx="16" fill="#2A2F3D"/>'
-            f'<g transform="translate({icon_x},{icon_y}) scale({gh_scale:.5f})" fill="#FFFFFF"><path d="{OCTOCAT_PATH}"/></g>'
-            f'<text x="{icon_x + icon_size + gap}" y="{button_y + button_h // 2 + 11}" '
-            f'font-weight="700" font-size="{font_size}" fill="#FFFFFF">{escape(label)}</text></a>'
-        )
+    stack_bottom = max(left_bottom, right_bottom)
+    # The "How I built this" GitHub link now lives as a fixed control beneath the
+    # top-right instructions (added in build_html), not in the brain card stack.
 
     brain_full_h = stack_bottom - brain_card_y + 50
     hotspots = render_markers(content, brain_x, img_y, brain_scale)
@@ -906,6 +893,18 @@ def build_html(svg_text: str, content: dict) -> str:
     shows the poster on wide screens and the cards on narrow ones.
     """
     inline = embed_brain(svg_text).replace("<svg ", '<svg id="poster" ', 1)
+    # "How I built this" GitHub link as a fixed control beneath the instructions.
+    github = content.get("github_link")
+    gh_button = ""
+    if github:
+        octocat = (
+            '<svg width="17" height="17" viewBox="0 0 16 16" fill="#fff">'
+            f'<path d="{OCTOCAT_PATH}"/></svg>'
+        )
+        gh_button = (
+            f'<a id="ghbtn" href="{escape(github.get("href", ""))}" target="_blank">'
+            f'{octocat}{escape(github.get("label", "View on GitHub"))}</a>'
+        )
     return (
         _HTML_SHELL.replace("__FONTFACES__", embedded_font_faces())
         .replace("__COLLAPSED_HEIGHT__", str(COLLAPSED_HEIGHT))
@@ -913,6 +912,7 @@ def build_html(svg_text: str, content: dict) -> str:
         .replace("__COLUMN_GAP__", str(COLUMN_GAP))
         .replace("__TRI_DOWN__", TRI_DOWN)
         .replace("__TRI_RIGHT__", TRI_RIGHT)
+        .replace("__GHBUTTON__", gh_button)
         .replace("__SVG__", inline)
         .replace("__MOBILE__", render_mobile(content))
     )
@@ -936,6 +936,8 @@ __FONTFACES__
   #hud button{font:600 13px/1 'Helvetica Neue',Arial;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:8px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#f3f4f6}
   #hint{position:fixed;right:14px;top:58px;z-index:10;background:rgba(255,255,255,.95);color:#57606a;border:1px solid #d0d7de;font:500 12px/1.45 'Helvetica Neue',Arial;padding:8px 11px;border-radius:9px;max-width:230px}
+  #ghbtn{position:fixed;right:14px;top:182px;z-index:30;display:inline-flex;align-items:center;gap:8px;background:#2A2F3D;color:#fff;border-radius:9px;padding:9px 13px;text-decoration:none;font:700 13px/1 'Helvetica Neue',Arial;box-shadow:0 1px 2px rgba(31,36,51,.12)}
+  #ghbtn:hover{background:#1F2433}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
   #tip.show{opacity:1}
   #mobile{display:none;max-width:680px;margin:0 auto;padding:26px 18px 56px;color:#2A2F3D;text-align:left}
@@ -962,7 +964,7 @@ __FONTFACES__
      keep the interactive view exactly as before. */
   @media (max-width:540px), (max-height:540px) and (pointer:coarse){
     html,body{overflow:auto;height:auto}
-    #stage,#hud,#hint,#tip{display:none}
+    #stage,#hud,#hint,#tip,#ghbtn{display:none}
     #mobile{display:block}
   }
 </style>
@@ -977,6 +979,7 @@ __SVG__
   <button type="button" id="fit">⤢ Fit</button>
 </div>
 <div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; click a card&rsquo;s header to expand or collapse it &middot; hover the brain icons for notes.</div>
+__GHBUTTON__
 <div id="tip"></div>
 __MOBILE__
 <script>
