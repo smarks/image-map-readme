@@ -77,8 +77,8 @@ BUTTON_GAP = 16
 COLLAPSED_HEIGHT = 120
 # Disclosure triangle, drawn in local coords and positioned with translate() so
 # the JS toggle only has to swap the points. Down = expanded, right = collapsed.
-TRI_DOWN = "-10,-6 10,-6 0,8"
-TRI_RIGHT = "-6,-10 -6,10 8,0"
+TRI_DOWN = "-18,-11 18,-11 0,15"
+TRI_RIGHT = "-11,-18 -11,18 15,0"
 
 # GitHub "Octocat" mark, drawn on a 16×16 grid (scaled where used).
 OCTOCAT_PATH = (
@@ -334,9 +334,9 @@ def card_divider(x: int, y: int, width: int) -> str:
 def card_header(card: dict, x: int, y: int, collapsed: bool = False) -> str:
     """Render a card's disclosure triangle, icon, and title (no divider)."""
     # Triangle at the far left, then the icon inset past the accent bar, then title.
-    tri_cx, tri_cy = x + CARD_PADDING + ICON_BAR_GAP + 4, y + 58
-    cx, cy = x + CARD_PADDING + ICON_BAR_GAP + 46, y + 62
-    title_x = cx + 52
+    tri_cx, tri_cy = x + CARD_PADDING + ICON_BAR_GAP + 8, y + 60
+    cx, cy = x + CARD_PADDING + ICON_BAR_GAP + 60, y + 62
+    title_x = cx + 54
     return (
         disclosure_triangle(tri_cx, tri_cy, collapsed)
         + icon(card["icon"], cx, cy, card["color"])
@@ -711,8 +711,8 @@ def build_svg(content: dict, brain_height: int) -> str:
     hotspots = render_markers(content, brain_x, img_y, brain_scale)
     brain_title = content.get("brain_title", "My brain — poke around the icons")
     brain_header = (
-        disclosure_triangle(panel_x + CARD_PADDING + 12, brain_card_y + 56, False)
-        + f'<text x="{panel_x + CARD_PADDING + 44}" y="{brain_card_y + 78}" class="cardh" '
+        disclosure_triangle(panel_x + CARD_PADDING + 16, brain_card_y + 58, False)
+        + f'<text x="{panel_x + CARD_PADDING + 60}" y="{brain_card_y + 78}" class="cardh" '
         f'fill="#1F2433">{escape(brain_title)}</text>'
     )
     brain_body = (
