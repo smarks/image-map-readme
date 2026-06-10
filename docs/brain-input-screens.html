@@ -243,11 +243,12 @@
             <p class="screen-desc">How a content edit becomes the live, password-gated
             poster at <code>roots.origamisoftware.com/me</code>.</p>
             <div class="workflow-note">
-                <strong>This all runs as a GitHub Workflow.</strong> You commit a file
-                to the private repo and wait — there are no manual build or deploy
-                steps. The change then shows up live, and the server brings the new
-                version up with a <strong>blue-green deployment</strong> (the new build
-                is staged beside the running one and swapped in, so there's no downtime).
+                <strong>This all runs as GitHub Workflows — you commit a file to the
+                private repo and wait.</strong> There are no manual build or deploy
+                steps: one workflow builds and gates the poster and publishes it into
+                the landing repo, then the landing repo's own workflow ships it to the
+                server with a plain <code>git pull</code> into the web root. The change
+                shows up live in about a minute.
             </div>
             <ol class="flow">
                 <li class="flow-step">
@@ -268,7 +269,7 @@
                 </li>
                 <li class="flow-step">
                     <div class="flow-num">5</div>
-                    <div class="flow-body"><strong>Go live (blue-green)</strong><br><code>roots.origamisoftware.com</code> deploys onto the server with a blue-green swap — the new build is brought up beside the running one and switched in, so there's no downtime. nginx then serves the one static gated file at <strong>roots.origamisoftware.com/me</strong>. The visitor's answer decrypts the poster in-browser; the page only ever ships ciphertext.</div>
+                    <div class="flow-body"><strong>Go live</strong><br>A push to the landing repo <code>roots.origamisoftware.com</code> runs its own workflow: validate links, SSH into the server (datahorde), and <code>git pull</code> into the directory that is both the git checkout and the nginx web root — then a smoke-check. nginx serves the one static gated file at <strong>roots.origamisoftware.com/me</strong>; the visitor's answer decrypts the poster in-browser, so the page only ever ships ciphertext. (The live web <em>apps</em> — Tarmar, Meeting Assistant, etc. — use a blue/green swap; this static page does not.)</div>
                 </li>
             </ol>
         </section>
