@@ -575,7 +575,9 @@ def render_markers(content: dict, brain_x: float, brain_y: float, scale: float) 
             continue
         marker_x = brain_x + (marker["x"] - BRAIN_IMAGE_X) * scale
         marker_y = brain_y + (marker["y"] - BRAIN_IMAGE_Y) * scale
-        tip_attr = f' data-tip="{escape(tooltip)}"' if tooltip else ""
+        # encode newlines as &#10; so multi-line tooltips survive into the
+        # attribute and render as line breaks (the tip uses white-space:pre-line)
+        tip_attr = f' data-tip="{escape(tooltip).replace(chr(10), "&#10;")}"' if tooltip else ""
         rect = (
             f'<rect class="hot" x="{marker_x:.1f}" y="{marker_y:.1f}" '
             f'width="{marker["w"] * scale:.1f}" height="{marker["h"] * scale:.1f}" '
@@ -934,7 +936,7 @@ __FONTFACES__
   #hud button{font:600 13px/1 'Helvetica Neue',Arial;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:8px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#f3f4f6}
   #hint{position:fixed;right:14px;top:58px;z-index:10;background:rgba(255,255,255,.95);color:#57606a;border:1px solid #d0d7de;font:500 12px/1.45 'Helvetica Neue',Arial;padding:8px 11px;border-radius:9px;max-width:230px}
-  #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
+  #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
   #tip.show{opacity:1}
   #mobile{display:none;max-width:680px;margin:0 auto;padding:26px 18px 56px;color:#2A2F3D;text-align:left}
   #mobile h1{font-size:2rem;font-weight:800;text-align:center;color:#1F2433;margin:6px 0 4px}
