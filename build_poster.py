@@ -710,7 +710,7 @@ def build_svg(content: dict, brain_height: int) -> str:
                 f'<rect x="{tx}" y="{tiles_y}" width="{tile}" height="{tile}" rx="30" '
                 f'fill="#FFFFFF" stroke="#C4CAD4" stroke-width="3" filter="url(#shadow)"/>'
                 f'<image x="{tx + tile_pad}" y="{tiles_y + tile_pad}" width="{icon_disp}" '
-                f'height="{icon_disp}" href="{uri}" xlink:href="{uri}" '
+                f'height="{icon_disp}" href="{uri}" '
                 f'preserveAspectRatio="xMidYMid meet"/>{label_svg}</g>'
             )
         cards_svg.append(collapsible(
@@ -721,9 +721,10 @@ def build_svg(content: dict, brain_height: int) -> str:
         right_collapsed_bottom += (COLLAPSED_HEIGHT if proc_collapsed else proc_full_h) + COLUMN_GAP
         right_y += proc_full_h + COLUMN_GAP
 
-    # 3) Claritas — the pipeline diagram and design-doc workflows, inline.
+    # 3) Claritas — the pipeline diagram inline; the design-doc workflows pop up
+    #    from a hotspot on the diagram (kept out of the page flow for speed).
     claritas = content.get("claritas")
-    if claritas and claritas.get("images"):
+    if claritas and claritas.get("diagram"):
         clar_y = right_y
         clar_collapsed = bool(claritas.get("collapsed", True))
         clar_body = [card_divider(panel_x, clar_y, panel_w)]
@@ -735,31 +736,35 @@ def build_svg(content: dict, brain_height: int) -> str:
                 f'{escape(claritas["caption"])}</text>'
             )
             cursor += 92
-        for image in claritas["images"]:
-            with Image.open(PROJECT / image["file"]) as picture:
-                native_w, native_h = picture.size
-            disp_w = min(native_w, inner_w - 80)
-            disp_h = round(native_h * disp_w / native_w)
-            image_x = panel_cx - disp_w // 2
-            if image.get("caption"):
-                clar_body.append(
-                    f'<text x="{panel_cx}" y="{cursor}" text-anchor="middle" '
-                    f'font-weight="700" font-size="38" fill="#403B33">'
-                    f'{escape(image["caption"])}</text>'
-                )
-                cursor += 58
-            encoded = base64.b64encode((PROJECT / image["file"]).read_bytes()).decode("ascii")
-            mime = "jpeg" if image["file"].lower().endswith((".jpg", ".jpeg")) else "png"
-            uri = f"data:image/{mime};base64,{encoded}"
-            frame = 12
+        diagram = claritas["diagram"]
+        with Image.open(PROJECT / diagram) as picture:
+            native_w, native_h = picture.size
+        disp_w = min(native_w, inner_w - 80)
+        disp_h = round(native_h * disp_w / native_w)
+        image_x = panel_cx - disp_w // 2
+        encoded = base64.b64encode((PROJECT / diagram).read_bytes()).decode("ascii")
+        uri = f"data:image/png;base64,{encoded}"
+        frame = 12
+        clar_body.append(
+            f'<rect x="{image_x - frame}" y="{cursor - frame}" '
+            f'width="{disp_w + 2 * frame}" height="{disp_h + 2 * frame}" rx="20" '
+            f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
+            f'<image x="{image_x}" y="{cursor}" width="{disp_w}" height="{disp_h}" '
+            f'href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
+        )
+        # Clickable hotspot over the diagram's "design documents" note. Position
+        # is a fraction of the source diagram (the old page's #hot: 3280,3045,
+        # 720,560 in a 4714×4351 image).
+        if claritas.get("design_docs"):
+            hx = image_x + round(0.696 * disp_w)
+            hy = cursor + round(0.700 * disp_h)
+            hw, hh = round(0.153 * disp_w), round(0.129 * disp_h)
             clar_body.append(
-                f'<rect x="{image_x - frame}" y="{cursor - frame}" '
-                f'width="{disp_w + 2 * frame}" height="{disp_h + 2 * frame}" rx="20" '
-                f'fill="#FFFFFF" stroke="#E4E7EC" stroke-width="2" filter="url(#shadow)"/>'
-                f'<image x="{image_x}" y="{cursor}" width="{disp_w}" height="{disp_h}" '
-                f'href="{uri}" xlink:href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
+                f'<rect class="docspot" data-tip="Click to open the original design documents" '
+                f'x="{hx}" y="{hy}" width="{hw}" height="{hh}" rx="16" '
+                f'fill="#F2A007" fill-opacity="0" style="cursor:pointer"/>'
             )
-            cursor += disp_h + 96
+        cursor += disp_h + 60
         clar_full_h = cursor - clar_y + 20
         cards_svg.append(collapsible(
             panel_x, clar_y, panel_w, clar_full_h, "",
@@ -917,6 +922,16 @@ def build_html(svg_text: str, content: dict) -> str:
             f'<a id="ghbtn" href="{escape(github.get("href", ""))}" target="_blank">'
             f'{octocat}{escape(github.get("label", "View on GitHub"))}</a>'
         )
+    # Design-docs image for the Claritas pop-up overlay (the two workflows as one).
+    docs_img = ""
+    docs_file = (content.get("claritas") or {}).get("design_docs")
+    if docs_file:
+        encoded = base64.b64encode((PROJECT / docs_file).read_bytes()).decode("ascii")
+        mime = "jpeg" if docs_file.lower().endswith((".jpg", ".jpeg")) else "png"
+        docs_img = (
+            f'<img src="data:image/{mime};base64,{encoded}" '
+            f'alt="Original Claritas design documents">'
+        )
     return (
         _HTML_SHELL.replace("__FONTFACES__", embedded_font_faces())
         .replace("__COLLAPSED_HEIGHT__", str(COLLAPSED_HEIGHT))
@@ -925,6 +940,7 @@ def build_html(svg_text: str, content: dict) -> str:
         .replace("__TRI_DOWN__", TRI_DOWN)
         .replace("__TRI_RIGHT__", TRI_RIGHT)
         .replace("__GHBUTTON__", gh_button)
+        .replace("__DOCS_IMG__", docs_img)
         .replace("__SVG__", inline)
         .replace("__MOBILE__", render_mobile(content))
     )
@@ -944,6 +960,15 @@ __FONTFACES__
   #poster{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;user-select:none}
   #poster a{cursor:pointer}
   #poster .ctoggle{cursor:pointer}
+  .docspot{fill:#F2A007;fill-opacity:0;stroke:#F2A007;stroke-width:6;stroke-opacity:0}
+  #poster .docspot{cursor:pointer}
+  .docspot:hover{fill-opacity:.16;stroke-opacity:1}
+  #docs{position:fixed;top:0;left:0;right:0;bottom:0;z-index:40;display:none;background:rgba(31,36,51,.62);overflow:auto;padding:26px}
+  #docs.open{display:flex}
+  #docs .dpanel{position:relative;background:#fff;border-radius:14px;max-width:1180px;width:96%;margin:auto;box-shadow:0 24px 70px rgba(0,0,0,.4);padding:16px}
+  #docs #dclose{position:absolute;top:12px;right:12px;border:1px solid #d0d7de;background:#fff;border-radius:8px;width:38px;height:38px;font-size:17px;line-height:1;cursor:pointer;color:#57606a;z-index:1}
+  #docs #dclose:hover{background:#f3f4f6}
+  #docs img{width:100%;height:auto;display:block;border-radius:8px}
   #hud{position:fixed;right:14px;top:14px;display:flex;gap:6px;z-index:30}
   #hud button{font:600 13px/1 'Helvetica Neue',Arial;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:8px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#f3f4f6}
@@ -977,7 +1002,7 @@ __FONTFACES__
      keep the interactive view exactly as before. */
   @media (max-width:540px), (max-height:540px) and (pointer:coarse){
     html,body{overflow:auto;height:auto}
-    #stage,#hud,#hint,#tip,#ghbtn{display:none}
+    #stage,#hud,#hint,#tip,#ghbtn,#docs{display:none}
     #mobile{display:block}
   }
 </style>
@@ -994,6 +1019,7 @@ __SVG__
 <div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; click a card&rsquo;s header to expand or collapse it &middot; hover the brain icons for notes.</div>
 __GHBUTTON__
 <div id="tip"></div>
+<div id="docs"><div class="dpanel"><button type="button" id="dclose" aria-label="Close">&#10005;</button>__DOCS_IMG__</div></div>
 __MOBILE__
 <script>
 (function(){
@@ -1022,7 +1048,7 @@ __MOBILE__
     var ns=Math.max(0.05,Math.min(8,scale*factor));
     tx=cx-(cx-tx)*(ns/scale); ty=cy-(cy-ty)*(ns/scale); scale=ns; apply();
   }
-  var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null,toggleTarget=null;
+  var down=false,moved=false,sx=0,sy=0,otx=0,oty=0,target=null,toggleTarget=null,docTarget=null;
   // ── Collapsible cards: toggle a card between its full slot and a header pill.
   var CH=__COLLAPSED_HEIGHT__, TRI_DOWN='__TRI_DOWN__', TRI_RIGHT='__TRI_RIGHT__';
   var COLTOP=__COLUMN_TOP__, COLGAP=__COLUMN_GAP__;
@@ -1069,6 +1095,7 @@ __MOBILE__
     down=true;moved=false;sx=e.clientX;sy=e.clientY;otx=tx;oty=ty;
     target=e.target.closest('a');
     toggleTarget=e.target.closest('.ctoggle');
+    docTarget=e.target.closest('.docspot');
     hideTip();
     stage.classList.add('grabbing');
   });
@@ -1106,6 +1133,8 @@ __MOBILE__
     down=false; stage.classList.remove('grabbing');
     if(toggleTarget && !moved){ toggleCard(toggleTarget.closest('.card')); toggleTarget=null; target=null; return; }
     toggleTarget=null;
+    if(docTarget && !moved){ var dv=document.getElementById('docs'); if(dv) dv.classList.add('open'); docTarget=null; target=null; return; }
+    docTarget=null;
     if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href){ window.open(href,'_blank'); } target=null; return; }
     target=null;
     if(e.pointerType!=='mouse' && !moved){   // touch tap on empty art toggles marker tooltips
@@ -1116,6 +1145,12 @@ __MOBILE__
   }
   stage.addEventListener('pointerup',endPointer);
   stage.addEventListener('pointercancel',endPointer);
+  // Design-docs overlay: close on backdrop click, the × button, or Escape.
+  var docsOverlay=document.getElementById('docs');
+  if(docsOverlay){
+    docsOverlay.addEventListener('click',function(e){ if(e.target===docsOverlay||e.target.id==='dclose') docsOverlay.classList.remove('open'); });
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape') docsOverlay.classList.remove('open'); });
+  }
   stage.addEventListener('wheel',function(e){
     e.preventDefault();
     var r=stage.getBoundingClientRect();
