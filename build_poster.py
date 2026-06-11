@@ -1109,8 +1109,8 @@ __MOBILE__
     if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href){ window.open(href,'_blank'); } target=null; return; }
     target=null;
     if(e.pointerType!=='mouse' && !moved){   // touch tap on empty art toggles marker tooltips
-      var el=e.target.closest('[data-tip]');
-      if(el){ tip.textContent=el.getAttribute('data-tip'); tip.classList.add('show'); moveTip(e.clientX,e.clientY); }
+      var el=e.target.closest('[data-tip],[data-img]');
+      if(el){ showTip(el,e.clientX,e.clientY); }
       else hideTip();
     }
   }
@@ -1141,23 +1141,33 @@ __MOBILE__
     e.preventDefault();
   });
   // ── Icon tooltips (pure hover) ──────────────────────────────────────────
-  var tip=document.getElementById('tip');
+  var tip=document.getElementById('tip'), tipX=0, tipY=0;
   function moveTip(x,y){
+    tipX=x; tipY=y;
     var pad=14, tw=tip.offsetWidth, th=tip.offsetHeight;
     var nx=x+pad, ny=y+pad;
     if(nx+tw>window.innerWidth) nx=x-pad-tw;
     if(ny+th>window.innerHeight) ny=y-pad-th;
     tip.style.left=Math.max(4,nx)+'px'; tip.style.top=Math.max(4,ny)+'px';
   }
+  // Show a marker's tip: an optional embedded image (data-img) above its text
+  // (data-tip). Reposition once the image decodes so it doesn't sit off-cursor.
+  function showTip(el,x,y){
+    var img=el.getAttribute('data-img'), txt=el.getAttribute('data-tip')||'';
+    while(tip.firstChild) tip.removeChild(tip.firstChild);
+    if(img){ var im=document.createElement('img'); im.onload=function(){ if(tip.classList.contains('show')) moveTip(tipX,tipY); }; im.src=img; tip.appendChild(im); }
+    if(txt){ var d=document.createElement('div'); d.textContent=txt; tip.appendChild(d); }
+    tip.classList.add('show'); moveTip(x,y);
+  }
   function hideTip(){ tip.classList.remove('show'); }
   stage.addEventListener('pointerover',function(e){
     if(down || e.pointerType!=='mouse')return;   // touch tooltips are handled on tap, above
-    var el=e.target.closest('[data-tip]');
-    if(el){ tip.textContent=el.getAttribute('data-tip'); tip.classList.add('show'); moveTip(e.clientX,e.clientY); }
+    var el=e.target.closest('[data-tip],[data-img]');
+    if(el){ showTip(el,e.clientX,e.clientY); }
   });
   stage.addEventListener('pointerout',function(e){
     if(e.pointerType!=='mouse')return;
-    if(e.target.closest('[data-tip]')) hideTip();
+    if(e.target.closest('[data-tip],[data-img]')) hideTip();
   });
   stage.addEventListener('pointermove',function(e){
     if(e.pointerType!=='mouse')return;           // pinned touch tip stays put until the next tap
