@@ -1265,9 +1265,13 @@ def prepare_brain(source_name: str) -> int:
     if not source.exists():
         raise FileNotFoundError(f"brain_image not found: {source}")
     with Image.open(source) as image:
-        rgb = image.convert("RGBA")
-        rgb.save(WEB_BRAIN)
+        rgb = image.convert("RGB")
         native_width, native_height = rgb.size
+        # Keep the embedded brain small and deterministic across environments:
+        # a quantized, optimized palette PNG (a plain re-save can balloon to tens
+        # of MB depending on the Pillow build). The brain sits on a white card,
+        # so it needs no alpha.
+        rgb.quantize(colors=256).save(WEB_BRAIN, optimize=True)
     return round(BRAIN_IMAGE_WIDTH * native_height / native_width)
 
 
