@@ -752,15 +752,16 @@ def build_svg(content: dict, brain_height: int) -> str:
             f'<image x="{image_x}" y="{cursor}" width="{disp_w}" height="{disp_h}" '
             f'href="{uri}" preserveAspectRatio="xMidYMid meet"/>'
         )
-        # Clickable hotspot over the diagram's "design documents" note. Position
-        # is a fraction of the source diagram (the old page's #hot: 3280,3045,
-        # 720,560 in a 4714×4351 image).
-        if claritas.get("design_docs"):
-            hx = image_x + round(0.696 * disp_w)
-            hy = cursor + round(0.700 * disp_h)
-            hw, hh = round(0.153 * disp_w), round(0.129 * disp_h)
+        # Clickable hotspots on the diagram; each opens its content in the overlay
+        # (region = x,y,w,h as fractions of the diagram, keyed by data-doc).
+        for popup in claritas.get("popups", []):
+            region = popup["region"]
+            hx = image_x + round(region[0] * disp_w)
+            hy = cursor + round(region[1] * disp_h)
+            hw, hh = round(region[2] * disp_w), round(region[3] * disp_h)
             clar_body.append(
-                f'<rect class="docspot" data-tip="Click to open the original design documents" '
+                f'<rect class="docspot" data-doc="{escape(popup["key"])}" '
+                f'data-tip="{escape(popup.get("tip", "Click for more detail"))}" '
                 f'x="{hx}" y="{hy}" width="{hw}" height="{hh}" rx="16" '
                 f'fill="#F2A007" fill-opacity="0" style="cursor:pointer"/>'
             )
@@ -922,16 +923,27 @@ def build_html(svg_text: str, content: dict) -> str:
             f'<a id="ghbtn" href="{escape(github.get("href", ""))}" target="_blank">'
             f'{octocat}{escape(github.get("label", "View on GitHub"))}</a>'
         )
-    # Design-docs image for the Claritas pop-up overlay (the two workflows as one).
-    docs_img = ""
-    docs_file = (content.get("claritas") or {}).get("design_docs")
-    if docs_file:
-        encoded = base64.b64encode((PROJECT / docs_file).read_bytes()).decode("ascii")
-        mime = "jpeg" if docs_file.lower().endswith((".jpg", ".jpeg")) else "png"
-        docs_img = (
-            f'<img src="data:image/{mime};base64,{encoded}" '
-            f'alt="Original Claritas design documents">'
-        )
+    # One overlay body per Claritas hotspot (image and/or formatted text).
+    doc_bodies = []
+    for popup in (content.get("claritas") or {}).get("popups", []):
+        key = escape(popup["key"])
+        if popup.get("image"):
+            encoded = base64.b64encode((PROJECT / popup["image"]).read_bytes()).decode("ascii")
+            mime = "jpeg" if popup["image"].lower().endswith((".jpg", ".jpeg")) else "png"
+            inner = f'<img src="data:image/{mime};base64,{encoded}" alt="Claritas design documents">'
+        else:
+            parts = []
+            if popup.get("title"):
+                parts.append(f'<h2 class="dtitle">{escape(popup["title"])}</h2>')
+            for section in popup.get("sections", []):
+                if section.get("heading"):
+                    parts.append(f'<h3>{escape(section["heading"])}</h3>')
+                if section.get("bullets"):
+                    items = "".join(f"<li>{escape(bullet)}</li>" for bullet in section["bullets"])
+                    parts.append(f"<ul>{items}</ul>")
+            inner = "".join(parts)
+        doc_bodies.append(f'<div class="docbody" data-doc="{key}">{inner}</div>')
+    docs_bodies = "".join(doc_bodies)
     return (
         _HTML_SHELL.replace("__FONTFACES__", embedded_font_faces())
         .replace("__COLLAPSED_HEIGHT__", str(COLLAPSED_HEIGHT))
@@ -940,7 +952,7 @@ def build_html(svg_text: str, content: dict) -> str:
         .replace("__TRI_DOWN__", TRI_DOWN)
         .replace("__TRI_RIGHT__", TRI_RIGHT)
         .replace("__GHBUTTON__", gh_button)
-        .replace("__DOCS_IMG__", docs_img)
+        .replace("__DOCS_BODIES__", docs_bodies)
         .replace("__SVG__", inline)
         .replace("__MOBILE__", render_mobile(content))
     )
@@ -955,7 +967,7 @@ _HTML_SHELL = """<!doctype html>
 <style>
 __FONTFACES__
   html,body{margin:0;height:100%;background:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden}
-  #stage{position:fixed;inset:0;cursor:grab;touch-action:none;overflow:hidden}
+  #stage{position:fixed;inset:0;cursor:grab;touch-action:none;overflow:hidden;opacity:0;transition:opacity .2s ease}
   #stage.grabbing{cursor:grabbing}
   #poster{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;user-select:none}
   #poster a{cursor:pointer}
@@ -969,6 +981,12 @@ __FONTFACES__
   #docs #dclose{position:absolute;top:12px;right:12px;border:1px solid #d0d7de;background:#fff;border-radius:8px;width:38px;height:38px;font-size:17px;line-height:1;cursor:pointer;color:#57606a;z-index:1}
   #docs #dclose:hover{background:#f3f4f6}
   #docs img{width:100%;height:auto;display:block;border-radius:8px}
+  #docs .docbody{display:none}
+  #docs .docbody.active{display:block}
+  #docs .dtitle{font-size:23px;font-weight:800;color:#1F2433;margin:4px 40px 16px 2px;line-height:1.25}
+  #docs h3{font-size:17px;font-weight:700;color:#2E2A5A;margin:20px 0 7px}
+  #docs ul{margin:0 0 6px;padding-left:22px}
+  #docs li{margin:0 0 8px;line-height:1.5;font-size:15px;color:#2b2b2b}
   #hud{position:fixed;right:14px;top:14px;display:flex;gap:6px;z-index:30}
   #hud button{font:600 13px/1 'Helvetica Neue',Arial;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:8px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#f3f4f6}
@@ -1019,7 +1037,7 @@ __SVG__
 <div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; click a card&rsquo;s header to expand or collapse it &middot; hover the brain icons for notes.</div>
 __GHBUTTON__
 <div id="tip"></div>
-<div id="docs"><div class="dpanel"><button type="button" id="dclose" aria-label="Close">&#10005;</button>__DOCS_IMG__</div></div>
+<div id="docs"><div class="dpanel"><button type="button" id="dclose" aria-label="Close">&#10005;</button>__DOCS_BODIES__</div></div>
 __MOBILE__
 <script>
 (function(){
@@ -1133,7 +1151,16 @@ __MOBILE__
     down=false; stage.classList.remove('grabbing');
     if(toggleTarget && !moved){ toggleCard(toggleTarget.closest('.card')); toggleTarget=null; target=null; return; }
     toggleTarget=null;
-    if(docTarget && !moved){ var dv=document.getElementById('docs'); if(dv) dv.classList.add('open'); docTarget=null; target=null; return; }
+    if(docTarget && !moved){
+      var dv=document.getElementById('docs'), key=docTarget.getAttribute('data-doc');
+      if(dv){
+        var bodies=dv.querySelectorAll('.docbody');
+        for(var bi=0;bi<bodies.length;bi++){ bodies[bi].classList.toggle('active', bodies[bi].getAttribute('data-doc')===key); }
+        var panel=dv.querySelector('.dpanel'); if(panel) panel.scrollTop=0;
+        dv.classList.add('open');
+      }
+      docTarget=null; target=null; return;
+    }
     docTarget=null;
     if(target && !moved){ var href=target.getAttribute('href')||target.getAttribute('xlink:href'); if(href){ window.open(href,'_blank'); } target=null; return; }
     target=null;
@@ -1216,10 +1243,15 @@ __MOBILE__
   window.addEventListener('orientationchange',fit);   // re-center when an iPad rotates
   // Fold the cards that should start collapsed (interactive page only; the static
   // SVG/PNG/PDF stay fully expanded).
+  // Fallback reveal, in case anything below throws — never leave a blank page.
+  setTimeout(function(){ stage.style.opacity='1'; }, 700);
   var startCollapsed=svg.querySelectorAll('.card[data-start-collapsed]');
   for(var ci=0;ci<startCollapsed.length;ci++) toggleCard(startCollapsed[ci]);
   reflow();
   fit();
+  // Reveal only once the poster is folded + fitted, so the first visible paint is
+  // the finished poster — not the raw, unscaled one flashing before it snaps in.
+  stage.style.opacity='1';
 })();
 </script>
 </body>
