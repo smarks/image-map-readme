@@ -988,10 +988,10 @@ __FONTFACES__
   #docs ul{margin:0 0 6px;padding-left:22px}
   #docs li{margin:0 0 8px;line-height:1.5;font-size:15px;color:#2b2b2b}
   #hud{position:fixed;right:14px;top:14px;display:flex;gap:6px;z-index:30}
-  #hud button{font:600 13px/1 'Helvetica Neue',Arial;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:8px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
+  #hud button{font:600 19px/1 'Helvetica Neue',Arial;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:#fff;color:#1F2433;border:1px solid #d0d7de;border-radius:9px;padding:0;cursor:pointer;box-shadow:0 1px 2px rgba(31,36,51,.08);-webkit-tap-highlight-color:transparent}
   #hud button:hover{background:#f3f4f6}
   #hint{position:fixed;right:14px;top:58px;z-index:10;background:rgba(255,255,255,.95);color:#57606a;border:1px solid #d0d7de;font:500 12px/1.45 'Helvetica Neue',Arial;padding:8px 11px;border-radius:9px;max-width:230px}
-  #ghbtn{position:fixed;right:14px;top:182px;z-index:30;display:inline-flex;align-items:center;gap:8px;background:#2A2F3D;color:#fff;border-radius:9px;padding:9px 13px;text-decoration:none;font:700 13px/1 'Helvetica Neue',Arial;box-shadow:0 1px 2px rgba(31,36,51,.12)}
+  #ghbtn{position:fixed;right:14px;top:60px;z-index:30;display:inline-flex;align-items:center;gap:8px;background:#2A2F3D;color:#fff;border-radius:9px;padding:9px 13px;text-decoration:none;font:700 13px/1 'Helvetica Neue',Arial;box-shadow:0 1px 2px rgba(31,36,51,.12)}
   #ghbtn:hover{background:#1F2433}
   #tip{position:fixed;z-index:20;pointer-events:none;background:rgba(31,36,51,.96);color:#fff;font:500 15px/1.35 'Helvetica Neue',Arial;padding:8px 11px;border-radius:8px;max-width:280px;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;transition:opacity .12s}
   #tip.show{opacity:1}
@@ -1030,11 +1030,10 @@ __FONTFACES__
 __SVG__
 </div>
 <div id="hud">
-  <button type="button" id="zin">＋ Zoom in</button>
-  <button type="button" id="zout">－ Zoom out</button>
-  <button type="button" id="fit">⤢ Fit</button>
+  <button type="button" id="zin" title="Zoom in" aria-label="Zoom in">＋</button>
+  <button type="button" id="zout" title="Zoom out" aria-label="Zoom out">－</button>
+  <button type="button" id="fit" title="Fit to screen" aria-label="Fit to screen">⤢</button>
 </div>
-<div id="hint">Drag or scroll to pan &middot; pinch or the +/&minus; keys to zoom &middot; click a card&rsquo;s header to expand or collapse it &middot; hover the brain icons for notes.</div>
 __GHBUTTON__
 <div id="tip"></div>
 <div id="docs"><div class="dpanel"><button type="button" id="dclose" aria-label="Close">&#10005;</button>__DOCS_BODIES__</div></div>
