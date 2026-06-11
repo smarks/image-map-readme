@@ -5,6 +5,16 @@
 default:
     @just --list
 
+# Byte-compile every tracked Python file (fast syntax check; CI runs the full build)
+check:
+    python3 -m py_compile $(git ls-files '*.py')
+    @echo "✓ all tracked Python compiles."
+
+# Install the tracked git hooks (one-time per clone) — points git at githooks/
+install-hooks:
+    git config core.hooksPath githooks
+    @echo "Hooks installed: githooks/ (pre-commit byte-compiles tracked Python)"
+
 # Build all artifacts (svg, html, png, pdf) from poster-content.json
 build:
     python3 build_poster.py

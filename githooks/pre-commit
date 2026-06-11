@@ -1,0 +1,14 @@
+#!/bin/sh
+# Pre-commit guard: byte-compile every tracked Python file so a syntax slip in
+# the shared engine can't be committed — and then pulled by brain-poster and
+# shipped. CI runs the full smoke build; this is the fast, local, dependency-free
+# tripwire that catches the obvious breakage before it ever leaves your machine.
+#
+# Installed via `git config core.hooksPath githooks` (run `just install-hooks`).
+files=$(git ls-files '*.py')
+[ -z "$files" ] && exit 0
+if ! python3 -m py_compile $files; then
+    echo "✗ Python syntax error above — commit blocked." >&2
+    exit 1
+fi
+echo "✓ engine: all tracked Python compiles."
